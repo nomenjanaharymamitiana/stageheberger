@@ -215,8 +215,13 @@ export default function Dashboard({ user: initialUser, onLogout }) {
       });
 
       if (response.ok) {
-        const blob = await response.blob();
-        const objectUrl = URL.createObjectURL(blob);
+        const blobData = await response.blob();
+        
+        // Extraction du Content-Type original ou fallback sur application/pdf
+        const contentType = response.headers.get("Content-Type") || "application/pdf";
+        const fileBlob = new Blob([blobData], { type: contentType });
+        
+        const objectUrl = URL.createObjectURL(fileBlob);
         setPreviewUrl(objectUrl);
       } else {
         alert("Erreur lors du chargement de la prévisualisation.");
@@ -229,6 +234,14 @@ export default function Dashboard({ user: initialUser, onLogout }) {
     } finally {
       setPreviewLoading(false);
     }
+  };
+
+  const handleClosePreview = () => {
+    if (previewUrl) {
+      URL.revokeObjectURL(previewUrl);
+    }
+    setPreviewUrl(null);
+    setPreviewDoc(null);
   };
 
   const handleCategoryClick = (catId) => {
@@ -340,7 +353,6 @@ export default function Dashboard({ user: initialUser, onLogout }) {
           </div>
 
           <nav style={{ padding: "16px 12px", display: "flex", flexDirection: "column", gap: "6px" }}>
-            {/* Tableau de bord */}
             <button
               onClick={() => { setActiveTab("tableau"); fetchDocuments(null); }}
               style={{
@@ -362,7 +374,6 @@ export default function Dashboard({ user: initialUser, onLogout }) {
               <i className="bi bi-grid-1x2-fill"></i> {t.nav?.dashboard || "Tableau de bord"}
             </button>
 
-            {/* Mes Documents (Renommé) */}
             <button
               onClick={() => { setActiveTab("documents"); fetchDocuments(null); }}
               style={{
@@ -384,7 +395,6 @@ export default function Dashboard({ user: initialUser, onLogout }) {
               <i className="bi bi-folder-fill"></i> Mes Documents
             </button>
 
-            {/* Corbeille */}
             <button
               onClick={() => { setActiveTab("corbeille"); fetchTrashDocuments(); }}
               style={{
@@ -406,7 +416,6 @@ export default function Dashboard({ user: initialUser, onLogout }) {
               <i className="bi bi-trash3-fill"></i> {t.nav?.trash || "Corbeille"}
             </button>
 
-            {/* PARAMÈTRES DÉROULANT */}
             <div>
               <button
                 onClick={() => {
@@ -468,7 +477,6 @@ export default function Dashboard({ user: initialUser, onLogout }) {
               )}
             </div>
 
-            {/* Nouveau Document */}
             <button
               onClick={() => setIsModalOpen(true)}
               style={{
@@ -509,7 +517,6 @@ export default function Dashboard({ user: initialUser, onLogout }) {
         <header style={{ backgroundColor: theme.sidebarBg, padding: "14px 28px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "flex-end", alignItems: "center", transition: "all 0.3s" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
             
-            {/* SÉLECTEUR DE LANGUE */}
             <div style={{ display: "flex", alignItems: "center", backgroundColor: theme.bg, borderRadius: "20px", padding: "3px", border: `1px solid ${theme.border}` }}>
               {["fr", "mg"].map((l) => (
                 <button
@@ -532,7 +539,6 @@ export default function Dashboard({ user: initialUser, onLogout }) {
               ))}
             </div>
 
-            {/* BOUTON MODE SOMBRE / CLAIR */}
             <button
               onClick={() => setDarkMode(!darkMode)}
               style={{
@@ -556,7 +562,6 @@ export default function Dashboard({ user: initialUser, onLogout }) {
 
             <div style={{ width: "1px", height: "24px", backgroundColor: theme.border }}></div>
 
-            {/* PROFIL UTILISATEUR */}
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <div style={{ width: "36px", height: "36px", borderRadius: "50%", backgroundColor: darkMode ? "#334155" : "#e2e8f0", color: theme.textPrimary, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "700", fontSize: "14px" }}>
                 {user?.prenom ? user.prenom.charAt(0).toUpperCase() : "M"}
@@ -600,8 +605,6 @@ export default function Dashboard({ user: initialUser, onLogout }) {
 
               {/* STATISTIQUES + CAMEMBERT */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "20px", marginBottom: "24px" }}>
-                
-                {/* Cartes Catégories */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "12px" }}>
                   {CATEGORIES.map((cat) => {
                     const count = getCategoryCount(cat.id);
@@ -635,7 +638,6 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                   })}
                 </div>
 
-                {/* Camembert des catégories */}
                 <div style={{ backgroundColor: theme.cardBg, padding: "18px 20px", borderRadius: "12px", border: `1px solid ${theme.border}`, boxShadow: "0 2px 5px rgba(0,0,0,0.03)", display: "flex", flexDirection: "column", justifyContent: "center" }}>
                   <h4 style={{ margin: "0 0 14px 0", fontSize: "12px", fontWeight: "700", color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.5px" }}>
                     Répartition des documents
@@ -810,7 +812,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
             </>
           )}
 
-          {/* TAB : MES DOCUMENTS (Renommé) */}
+          {/* TAB : MES DOCUMENTS */}
           {activeTab === "documents" && (
             <div>
               <div style={{ marginBottom: "20px" }}>
@@ -959,13 +961,14 @@ export default function Dashboard({ user: initialUser, onLogout }) {
               activeSubTab={activeSettingsSubTab}
               setActiveSubTab={setActiveSettingsSubTab}
               getAuthHeaders={getAuthHeaders}
+              theme={theme}
             />
           )}
 
         </main>
       </div>
 
-      {/* MODALES & APERÇU */}
+      {/* MODALE DE PRÉVISUALISATION */}
       {previewDoc && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(15, 23, 42, 0.7)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1100 }}>
           <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", width: "90%", height: "85%", maxWidth: "900px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -973,7 +976,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
               <h3 style={{ margin: 0, fontSize: "15px", fontWeight: "700" }}>
                 Aperçu : {previewDoc.title} ({previewDoc.num_ref})
               </h3>
-              <button onClick={() => { setPreviewDoc(null); setPreviewUrl(null); }} style={{ background: "none", border: "none", color: theme.textPrimary, cursor: "pointer", fontSize: "18px" }}>
+              <button onClick={handleClosePreview} style={{ background: "none", border: "none", color: theme.textPrimary, cursor: "pointer", fontSize: "18px" }}>
                 <i className="bi bi-x-lg"></i>
               </button>
             </div>
@@ -990,7 +993,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
         </div>
       )}
 
-      {/* MODALE SUPPRESSION */}
+      {/* MODALE DE SUPPRESSION */}
       {docToDelete && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(15, 23, 42, 0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1050 }}>
           <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", padding: "24px", maxWidth: "400px", width: "90%", boxShadow: "0 10px 25px rgba(0,0,0,0.2)" }}>
@@ -1010,7 +1013,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
         </div>
       )}
 
-      {/* UPLOAD / EDIT */}
+      {/* MODALES UPLOAD / EDIT */}
       {isModalOpen && (
         <DocumentUploadModal
           isOpen={isModalOpen}
