@@ -8,3 +8,5 @@ requests
 pillow
 PyJWT
 python-multipart
+bcrypt
+passlib[bcrypt]
