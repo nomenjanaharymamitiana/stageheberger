@@ -21,26 +21,25 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# --- CONFIGURATION CORS CORRIGÉE ---
+# --- LISTE DES ORIGINES ---
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
 ]
 
-# Ajout de l'URL de production frontend si présente dans l'environnement
+# Récupération de l'URL frontend explicite si définie
 frontend_url = os.getenv("FRONTEND_URL")
 if frontend_url:
-    origins.append(frontend_url)
-
-is_dev = os.getenv("ENVIRONMENT") == "dev"
+    origins.append(frontend_url.rstrip("/"))
 
 app.add_middleware(
     CORSMiddleware,
-    # En Dev, permet n'importe quelle origine HTTP/HTTPS (port variable, IP locale, etc.)
-    # En Prod, restreint strictement aux origines de la liste `origins`
-    allow_origin_regex=r"https?://.*" if is_dev else None,
-    allow_origins=[] if is_dev else origins,
+    # allow_origins explicite pour les domaines connus
+    allow_origins=origins,
+    # allow_origin_regex permet d'accepter l'IP publique ou les sous-domaines (Render, etc.) 
+    # tout en respectant l'exigence de allow_credentials=True (pas de wildcard "*")
+    allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
