@@ -1,16 +1,38 @@
-from fastapi import FastAPI, Depends
-from sqlalchemy.orm import Session
-from sqlalchemy import text
-from database import engine, get_db
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI()
+import models
+from database import engine
+from routes import auth_router, document_router
+from routes.utlisateur import router as utilisateur_router
 
-@app.get("/test-db")
-def test_db_connection(db: Session = Depends(get_db)):
-    try:
-        # Exécute une requête SQL minimale
-        result = db.execute(text("SELECT 1")).scalar()
-        return {"status": "success", "db_response": result}
-    except Exception as e:
-        # Retourne l'erreur exacte capturée
-        return {"status": "error", "message": str(e)}
+# Création des tables au démarrage de l'application
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    models.Base.metadata.create_all(bind=engine)
+    yield
+
+app = FastAPI(
+    title="GED Haute Matsiatra - API DAG/RH",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Configuration CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Inclusion des routeurs
+app.include_router(auth_router)
+app.include_router(document_router)
+app.include_router(utilisateur_router)
+
+@app.get("/")
+def root():
+    return {"message": "API GED Haute Matsiatra fonctionnelle"}
