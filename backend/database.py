@@ -1,20 +1,17 @@
 import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
-# Charge les variables contenues dans le fichier .env
 load_dotenv()
 
-# Récupère DATABASE_URL depuis le fichier .env (ou depuis les variables Render en production)
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Correction d'URL au cas où Render ou un hébergeur fournit "postgres://" au lieu de "postgresql://"
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL)
+# pool_pre_ping reteste la connexion automatiquement si elle a été coupée
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 SessionLocal = sessionmaker(
     autocommit=False, 
