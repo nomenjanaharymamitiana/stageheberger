@@ -2,7 +2,6 @@ import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.wsgi import WSGIMiddleware
 
 import models
 from database import engine
@@ -10,11 +9,8 @@ from routes import auth_router, document_router
 from routes.utlisateur import router as utilisateur_router
 
 
-# Création des tables au démarrage
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Remarque : Si vous utilisez Alembic pour les migrations, 
-    # create_all est sans danger (il ne réécrira pas les tables existantes).
     models.Base.metadata.create_all(bind=engine)
     yield
 
@@ -25,25 +21,26 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# --- CONFIGURATION CORS DYNAMIQUE ---
-# Liste des origines autorisées en local et en production
+# --- CONFIGURATION CORS CORRIGÉE ---
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
 ]
 
-# Si l'URL du frontend est définie sur Render via une variable d'environnement
+# Ajout de l'URL de production frontend si présente dans l'environnement
 frontend_url = os.getenv("FRONTEND_URL")
 if frontend_url:
     origins.append(frontend_url)
 
+is_dev = os.getenv("ENVIRONMENT") == "dev"
+
 app.add_middleware(
     CORSMiddleware,
-    # Permet de charger toutes les origines en dev si besoin, 
-    # ou d'utiliser la liste précise pour respecter allow_credentials=True
-    allow_origin_regex=r"https?://.*" if os.getenv("ENVIRONMENT") == "dev" else None,
-    allow_origins=origins if os.getenv("ENVIRONMENT") != "dev" else ["*"],
+    # En Dev, permet n'importe quelle origine HTTP/HTTPS (port variable, IP locale, etc.)
+    # En Prod, restreint strictement aux origines de la liste `origins`
+    allow_origin_regex=r"https?://.*" if is_dev else None,
+    allow_origins=[] if is_dev else origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
