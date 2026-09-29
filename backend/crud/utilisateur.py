@@ -1,7 +1,7 @@
 from typing import List, Optional
 import bcrypt
 from models.utilisateur import Utilisateur
-from schemas.utlisateur import PasswordChange, UtilisateurCreate, UtilisateurUpdate
+from schemas.utilisateur import PasswordChange, UtilisateurCreate, UtilisateurUpdate
 from sqlalchemy.orm import Session
 
 
