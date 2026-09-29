@@ -18,7 +18,7 @@ const CATEGORIES = [
 export default function DashboardRSI({ user: initialUser, onLogout }) {
   const [user, setUser] = useState(initialUser);
   const [lang, setLang] = useState("fr");
-  const t = translations[lang] || translations["fr"];
+  const t = translations[lang] || translations["fr"] || {};
 
   // Mode sombre (Dark Mode)
   const [darkMode, setDarkMode] = useState(false);
@@ -48,7 +48,6 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
     im: "",
     nom: "",
     prenom: "",
-    email: "",
     password: "",
     role: "DAG"
   });
@@ -211,11 +210,11 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
       const activeFilters = overrideFilters || searchFilters;
       const queryParams = new URLSearchParams();
 
-      if (activeFilters.title.trim()) queryParams.append("title", activeFilters.title.trim());
-      if (activeFilters.num_ref.trim()) queryParams.append("num_ref", activeFilters.num_ref.trim());
-      if (activeFilters.cat.trim()) queryParams.append("cat", activeFilters.cat.trim());
-      if (activeFilters.annee_redac.trim()) queryParams.append("annee_redac", activeFilters.annee_redac.trim());
-      if (activeFilters.file_format.trim()) queryParams.append("file_format", activeFilters.file_format.trim());
+      if (activeFilters.title?.trim()) queryParams.append("title", activeFilters.title.trim());
+      if (activeFilters.num_ref?.trim()) queryParams.append("num_ref", activeFilters.num_ref.trim());
+      if (activeFilters.cat?.trim()) queryParams.append("cat", activeFilters.cat.trim());
+      if (activeFilters.annee_redac?.trim()) queryParams.append("annee_redac", activeFilters.annee_redac.trim());
+      if (activeFilters.file_format?.trim()) queryParams.append("file_format", activeFilters.file_format.trim());
 
       const url = `${API_DOCUMENTS}/search?${queryParams.toString()}`;
       const response = await fetch(url, { headers: getAuthHeaders() });
@@ -261,11 +260,9 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
     e.preventDefault();
     try {
       if (editingUser) {
-        // PUT /api/v1/users/{im}
         const updatePayload = {
           nom: userFormData.nom,
           prenom: userFormData.prenom,
-          email: userFormData.email,
           role: userFormData.role
         };
         const response = await fetch(`${API_USERS}/${encodeURIComponent(editingUser.im)}`, {
@@ -283,7 +280,6 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
           alert(`Erreur : ${errData.detail || "Échec de la mise à jour."}`);
         }
       } else {
-        // POST /api/v1/users/
         const response = await fetch(`${API_USERS}/`, {
           method: "POST",
           headers: getAuthHeaders(),
@@ -330,8 +326,7 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
         im: userToEdit.im,
         nom: userToEdit.nom || "",
         prenom: userToEdit.prenom || "",
-        email: userToEdit.email || "",
-        password: "", // Optionnel lors de la mise à jour
+        password: "",
         role: userToEdit.role || userToEdit.type_user || "DAG"
       });
     } else {
@@ -340,7 +335,6 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
         im: "",
         nom: "",
         prenom: "",
-        email: "",
         password: "",
         role: "DAG"
       });
@@ -354,8 +348,8 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
     try {
       const queryParams = new URLSearchParams();
       if (journalFilters.date_action) queryParams.append("date_action", journalFilters.date_action);
-      if (journalFilters.im_user.trim()) queryParams.append("im_user", journalFilters.im_user.trim());
-      if (journalFilters.num_ref_doc.trim()) queryParams.append("num_ref_doc", journalFilters.num_ref_doc.trim());
+      if (journalFilters.im_user?.trim()) queryParams.append("im_user", journalFilters.im_user.trim());
+      if (journalFilters.num_ref_doc?.trim()) queryParams.append("num_ref_doc", journalFilters.num_ref_doc.trim());
 
       const response = await fetch(`${API_JOURNAL}/?${queryParams.toString()}`, {
         headers: getAuthHeaders()
@@ -502,12 +496,12 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
   };
 
   const filteredUsers = usersList.filter((u) => {
-    const textMatch =
-      u.im.toLowerCase().includes(userSearchText.toLowerCase()) ||
-      (u.nom && u.nom.toLowerCase().includes(userSearchText.toLowerCase())) ||
-      (u.prenom && u.prenom.toLowerCase().includes(userSearchText.toLowerCase())) ||
-      (u.email && u.email.toLowerCase().includes(userSearchText.toLowerCase()));
-    return textMatch;
+    const query = userSearchText.toLowerCase();
+    return (
+      u.im?.toLowerCase().includes(query) ||
+      u.nom?.toLowerCase().includes(query) ||
+      u.prenom?.toLowerCase().includes(query)
+    );
   });
 
   return (
@@ -1006,7 +1000,7 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
                   <i className="bi bi-search" style={{ color: theme.textSecondary, fontSize: "14px", marginRight: "8px" }}></i>
                   <input
                     type="text"
-                    placeholder="Filtrer par IM, Nom, Prénom, Email..."
+                    placeholder="Filtrer par IM, Nom, Prénom..."
                     value={userSearchText}
                     onChange={(e) => setUserSearchText(e.target.value)}
                     style={{ width: "100%", border: "none", outline: "none", fontSize: "13px", color: theme.textPrimary, backgroundColor: "transparent", padding: "8px 0" }}
@@ -1040,7 +1034,6 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
                     <tr style={{ borderBottom: `1px solid ${theme.border}`, color: theme.textSecondary }}>
                       <th style={{ padding: "12px" }}>IM (Matricule)</th>
                       <th style={{ padding: "12px" }}>Nom & Prénom</th>
-                      <th style={{ padding: "12px" }}>Email</th>
                       <th style={{ padding: "12px" }}>Rôle / Service</th>
                       <th style={{ padding: "12px", textAlign: "right" }}>Actions</th>
                     </tr>
@@ -1055,7 +1048,6 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
                         <tr key={u.im} style={{ borderBottom: `1px solid ${theme.border}` }}>
                           <td style={{ padding: "12px", fontWeight: "700" }}>{u.im}</td>
                           <td style={{ padding: "12px", fontWeight: "500" }}>{u.nom} {u.prenom}</td>
-                          <td style={{ padding: "12px", color: theme.textSecondary }}>{u.email || "—"}</td>
                           <td style={{ padding: "12px" }}>
                             <span style={{ padding: "4px 10px", borderRadius: "12px", backgroundColor: roleBg, color: roleColor, fontWeight: "700", fontSize: "11px" }}>
                               {userRole}
@@ -1255,7 +1247,7 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
         </main>
       </div>
 
-      {/* MODALE CRÉATION / ÉDITION UTILISATEUR */}
+      {/* MODALE CRÉATION / ÉDITION UTILISATEUR (SANS LE CHAMP EMAIL) */}
       {showUserModal && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }}>
           <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", width: "480px", maxWidth: "95vw", padding: "24px", border: `1px solid ${theme.border}` }}>
@@ -1305,18 +1297,6 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
                     style={{ width: "100%", padding: "10px", borderRadius: "6px", border: `1px solid ${theme.border}`, fontSize: "13px", color: theme.textPrimary, backgroundColor: theme.inputBg }}
                   />
                 </div>
-              </div>
-
-              <div>
-                <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px", color: theme.textSecondary }}>Email</label>
-                <input
-                  type="email"
-                  required
-                  placeholder="agent@district.mg"
-                  value={userFormData.email}
-                  onChange={(e) => setUserFormData({ ...userFormData, email: e.target.value })}
-                  style={{ width: "100%", padding: "10px", borderRadius: "6px", border: `1px solid ${theme.border}`, fontSize: "13px", color: theme.textPrimary, backgroundColor: theme.inputBg }}
-                />
               </div>
 
               {!editingUser && (

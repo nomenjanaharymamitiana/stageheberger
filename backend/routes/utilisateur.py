@@ -3,9 +3,10 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 
 from database import get_db
-import crud.utilisateur as crud_user
-import schemas.utilisateur as schemas_user
 
+
+from crud import utilisateur as crud_user
+from schemas import utilisateur as schemas_user
 router = APIRouter(
     prefix="/api/v1/users",
     tags=["Gestion Utilisateurs (DAG / RH)"]
