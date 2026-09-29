@@ -1,14 +1,17 @@
 import os
 from contextlib import asynccontextmanager
-from routes import journal
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import models
 from database import engine
-from routes import auth_router, document_router
-from routes.utlisateur import router as utilisateur_router
 
+# Imports directs depuis chaque fichier dans le dossier routes/
+from routes import journal
+from routes.auth import router as auth_router            # Ajustez selon le nom réel du fichier auth
+from routes.document import router as document_router    # Ajustez selon le nom réel du fichier document
+from routes.utilisateur import router as utilisateur_router  # Assurez-vous que le fichier est routes/utilisateur.py
+from routes import auth_router, document_router, utilisateur_router, journal_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -29,17 +32,13 @@ origins = [
     "http://localhost:3000",
 ]
 
-# Récupération de l'URL frontend explicite si définie
 frontend_url = os.getenv("FRONTEND_URL")
 if frontend_url:
     origins.append(frontend_url.rstrip("/"))
 
 app.add_middleware(
     CORSMiddleware,
-    # allow_origins explicite pour les domaines connus
     allow_origins=origins,
-    # allow_origin_regex permet d'accepter l'IP publique ou les sous-domaines (Render, etc.) 
-    # tout en respectant l'exigence de allow_credentials=True (pas de wildcard "*")
     allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
@@ -50,7 +49,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(document_router)
 app.include_router(utilisateur_router)
-app.include_router(journal.router)
+app.include_router(journal_router)  # Utilisez journal_router au lieu de journal.router
 
 
 @app.get("/")

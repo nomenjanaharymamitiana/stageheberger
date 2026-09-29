@@ -3,17 +3,18 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 
 from database import get_db
-import crud.utlisateur as crud_user
-import schemas.utlisateur as schemas_user
+import crud.utilisateur as crud_user
+import schemas.utilisateur as schemas_user
 
 router = APIRouter(
     prefix="/api/v1/users",
     tags=["Gestion Utilisateurs (DAG / RH)"]
 )
 
+
 def get_current_user_im(
-    authorization: Optional[str] = Header(None),
-    x_user_im: Optional[str] = Header(None)
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    x_user_im: Optional[str] = Header(None, alias="X-User-IM")
 ) -> str:
     user_im = x_user_im or (authorization.replace("Bearer ", "") if authorization else None)
     if not user_im:
@@ -24,7 +25,8 @@ def get_current_user_im(
     return user_im
 
 
-# ---------------- GESTION DE PROFIL AUTONOME ----------------
+# ---------------- 1. ENDPOINTS FIXES / PROFIL AUTONOME ----------------
+# (Doivent être déclarés AVANT les endpoints avec paramètres dynamiques /{im})
 
 @router.put("/me", response_model=schemas_user.UtilisateurOut)
 def update_profile(
@@ -64,7 +66,7 @@ def change_password(
     return {"message": "Mot de passe modifié avec succès"}
 
 
-# ---------------- CRUD ADMINISTRATIF DAG / RH ----------------
+# ---------------- 2. CRUD ADMINISTRATIF DAG / RH (LISTE & CREATION) ----------------
 
 @router.get("/", response_model=List[schemas_user.UtilisateurOut])
 def get_users(
@@ -95,6 +97,9 @@ def create_user(
 
     return crud_user.create_utilisateur(db, user_data)
 
+
+# ---------------- 3. ENDPOINTS DYNAMIQUES /{IM} ----------------
+# (Toujours à la fin du fichier)
 
 @router.get("/{im}", response_model=schemas_user.UtilisateurOut)
 def get_user_by_im(im: str, db: Session = Depends(get_db)):
