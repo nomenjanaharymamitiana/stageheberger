@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import logoGed from "../assets/WhatsApp Image 2026-09-21 at 11.01.52.jpeg";
+import "bootstrap-icons/font/bootstrap-icons.css";
 import "../styles/theme.css";
 import DocumentUploadModal from "../components/DocumentUploadModal";
 import DocumentEditModal from "../components/DocumentEditModal";
@@ -11,7 +12,7 @@ const API_BASE_URL = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}
 const CATEGORIES = [
   { id: "Nomination", icon: "bi-person-badge-fill", color: "#6366f1", bg: "#e0e7ff", darkBg: "rgba(99, 102, 241, 0.2)" },
   { id: "Finance", icon: "bi-cash-coin", color: "#10b981", bg: "#d1fae5", darkBg: "rgba(16, 185, 129, 0.2)" },
-  { id: "Autre", icon: "bi-folder2-open", color: "#f59e0b", bg: "#fef3c7", darkBg: "rgba(245, 158, 11, 0.2)" }
+  { id: "Développement", icon: "bi-graph-up-arrow", color: "#f59e0b", bg: "#fef3c7", darkBg: "rgba(245, 158, 11, 0.2)" }
 ];
 
 export default function Dashboard({ user: initialUser, onLogout }) {
@@ -24,7 +25,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
 
   // Navigation: "tableau", "documents", "corbeille", "parametres"
   const [activeTab, setActiveTab] = useState("tableau");
-  
+
   // Sidebar et Sous-onglets
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeSettingsSubTab, setActiveSettingsSubTab] = useState("compte");
@@ -142,8 +143,8 @@ export default function Dashboard({ user: initialUser, onLogout }) {
 
       if (response.ok) {
         setTrashDocuments((prev) => prev.filter((doc) => doc.num_ref !== num_ref));
-        fetchAllDocuments();
-        fetchDocuments(selectedCategory);
+        await fetchAllDocuments();
+        await fetchDocuments(selectedCategory);
       } else {
         alert("Erreur lors de la restauration du document.");
       }
@@ -216,11 +217,8 @@ export default function Dashboard({ user: initialUser, onLogout }) {
 
       if (response.ok) {
         const blobData = await response.blob();
-        
-        // Extraction du Content-Type original ou fallback sur application/pdf
         const contentType = response.headers.get("Content-Type") || "application/pdf";
         const fileBlob = new Blob([blobData], { type: contentType });
-        
         const objectUrl = URL.createObjectURL(fileBlob);
         setPreviewUrl(objectUrl);
       } else {
@@ -282,8 +280,8 @@ export default function Dashboard({ user: initialUser, onLogout }) {
   const renderPieChart = () => {
     const nominationCount = getCategoryCount("Nomination");
     const financeCount = getCategoryCount("Finance");
-    const autreCount = getCategoryCount("Autre");
-    const total = nominationCount + financeCount + autreCount;
+    const developpementCount = getCategoryCount("Développement");
+    const total = nominationCount + financeCount + developpementCount;
 
     if (total === 0) {
       return <p style={{ fontSize: "12px", color: theme.textSecondary, textAlign: "center", margin: "auto" }}>Aucune donnée</p>;
@@ -292,7 +290,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
     const slices = [
       { percentage: (nominationCount / total) * 100, color: "#6366f1", label: "Nomination" },
       { percentage: (financeCount / total) * 100, color: "#10b981", label: "Finance" },
-      { percentage: (autreCount / total) * 100, color: "#f59e0b", label: "Autre" },
+      { percentage: (developpementCount / total) * 100, color: "#f59e0b", label: "Développement" },
     ];
 
     let cumulativePercent = 0;
@@ -705,7 +703,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                         <option value="">Toutes</option>
                         <option value="Nomination">Nomination</option>
                         <option value="Finance">Finance</option>
-                        <option value="Autre">Autre</option>
+                        <option value="Développement">Développement</option>
                       </select>
                     </div>
 
@@ -1018,7 +1016,11 @@ export default function Dashboard({ user: initialUser, onLogout }) {
         <DocumentUploadModal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
-          onSuccess={() => { setIsModalOpen(false); fetchAllDocuments(); fetchDocuments(selectedCategory); }}
+          onSuccess={async () => {
+            setIsModalOpen(false);
+            await fetchAllDocuments();
+            await fetchDocuments(selectedCategory);
+          }}
           getAuthHeaders={getAuthHeaders}
         />
       )}
@@ -1027,7 +1029,11 @@ export default function Dashboard({ user: initialUser, onLogout }) {
         <DocumentEditModal
           doc={docToEdit}
           onClose={() => setDocToEdit(null)}
-          onSuccess={() => { setDocToEdit(null); fetchAllDocuments(); fetchDocuments(selectedCategory); }}
+          onSuccess={async () => {
+            setDocToEdit(null);
+            await fetchAllDocuments();
+            await fetchDocuments(selectedCategory);
+          }}
           getAuthHeaders={getAuthHeaders}
         />
       )}
