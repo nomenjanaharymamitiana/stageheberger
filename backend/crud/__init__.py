@@ -1,1 +1,1 @@
-from . import auth, document
+from . import auth, document , utilisateur, journal
