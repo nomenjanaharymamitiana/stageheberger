@@ -1,9 +1,13 @@
 from typing import List, Optional
+from models.demande import DemandeChangementMdp
+from models.demande import DemandeChangementMdp
 import bcrypt
 from models.utilisateur import Utilisateur
 from schemas.utilisateur import PasswordChange, UtilisateurCreate, UtilisateurUpdate
 from sqlalchemy.orm import Session
-
+from schemas import utilisateur as schemas_user
+#import uuid
+import uuid
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
   if not hashed_password:
@@ -38,7 +42,29 @@ def get_utilisateurs_by_role(
     query = query.filter(Utilisateur.role == role)
   return query.all()
 
+def request_password_change_for_rsi(db: Session, im: str, password_data: schemas_user.PasswordChange):
+    user = get_utilisateur_by_im(db, im)
+    if not user:
+        return {"error": "not_found"}
+    
+    # Vérification du mot de passe actuel
+    if not verify_password(password_data.old_password, user.mdp):
+        return {"error": "invalid_password"}
 
+    # Enregistrement dans la table d'attente (DemandeChangementMdp)
+    id_genere = f"DMD-{uuid.uuid4().hex[:8].upper()}"
+    pending_req = DemandeChangementMdp(
+        id_dmd=id_genere,
+        im_user=im,
+        new_password_hash=hash_password(password_data.new_password),
+        statut="en_attente"
+    )
+    db.add(pending_req)
+    db.commit()
+    
+    return {"status": "pending"}
+    
+    return {"status": "pending"}
 def create_utilisateur(
     db: Session, user_data: UtilisateurCreate
 ) -> Utilisateur:

@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 class DocumentBase(BaseModel):
@@ -21,7 +21,7 @@ class DocumentUpdate(BaseModel):
 class DocumentOut(DocumentBase):
     file_path: str
     im_dag_rh: Optional[str] = None
-    est_sup: bool = False
+    date_suppression: Optional[datetime] = None
 
     class Config:
         from_attributes = True

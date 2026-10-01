@@ -155,7 +155,7 @@ export default function DocumentEditModal({ doc, onClose, onSuccess, getAuthHead
             >
               <option value="Nomination">Nomination</option>
               <option value="Finance">Finance</option>
-              <option value="Autre">Autre</option>
+              <option value="Autre">Developpement</option>
             </select>
           </div>
 

@@ -1,7 +1,7 @@
 import os
 import shutil
 import uuid
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from fastapi import UploadFile, HTTPException, status
@@ -68,11 +68,10 @@ def create_document(
         title=title,
         file_path=saved_path,
         im_dag_rh=im_dag_rh,
-        est_sup=False
+        date_suppression=None
     )
     db.add(new_doc)
     
-    # Journalisation
     create_log(db, f"Ajout du document {num_ref}", im_dag_rh, num_ref)
     
     db.commit()
@@ -92,7 +91,7 @@ def search_documents(
     file_format: Optional[str] = None,
     title: Optional[str] = None
 ) -> List[models.Document]:
-    query = db.query(models.Document).filter(models.Document.est_sup == False)
+    query = db.query(models.Document).filter(models.Document.date_suppression.is_(None))
 
     if num_ref:
         query = query.filter(models.Document.num_ref.ilike(f"%{num_ref}%"))
@@ -110,7 +109,7 @@ def search_documents(
 def get_all_documents(db: Session, skip: int = 0, limit: int = 50) -> List[models.Document]:
     return (
         db.query(models.Document)
-        .filter(models.Document.est_sup == False)
+        .filter(models.Document.date_suppression.is_(None))
         .order_by(models.Document.date_num.desc())
         .offset(skip)
         .limit(limit)
@@ -120,7 +119,7 @@ def get_all_documents(db: Session, skip: int = 0, limit: int = 50) -> List[model
 def get_documents_by_user(db: Session, im_user: str, skip: int = 0, limit: int = 50) -> List[models.Document]:
     return (
         db.query(models.Document)
-        .filter(models.Document.im_dag_rh == im_user, models.Document.est_sup == False)
+        .filter(models.Document.im_dag_rh == im_user, models.Document.date_suppression.is_(None))
         .order_by(models.Document.date_num.desc())
         .offset(skip)
         .limit(limit)
@@ -130,19 +129,22 @@ def get_documents_by_user(db: Session, im_user: str, skip: int = 0, limit: int =
 def get_trash_documents(db: Session) -> List[models.Document]:
     return (
         db.query(models.Document)
-        .filter(models.Document.est_sup == True)
-        .order_by(models.Document.date_num.desc())
+        .filter(models.Document.date_suppression.is_not(None))
+        .order_by(models.Document.date_suppression.desc())
         .all()
     )
 
 def soft_delete_document(db: Session, num_ref: str, im_user: str):
-    doc = db.query(models.Document).filter(models.Document.num_ref == num_ref, models.Document.est_sup == False).first()
+    doc = db.query(models.Document).filter(
+        models.Document.num_ref == num_ref, 
+        models.Document.date_suppression.is_(None)
+    ).first()
+    
     if not doc:
         return None
 
-    doc.est_sup = True
+    doc.date_suppression = datetime.utcnow()
     
-    # Journalisation
     create_log(db, f"Mise en corbeille du document {num_ref}", im_user, num_ref)
 
     db.commit()
@@ -150,13 +152,16 @@ def soft_delete_document(db: Session, num_ref: str, im_user: str):
     return doc
 
 def restore_document(db: Session, num_ref: str, im_user: str):
-    doc = db.query(models.Document).filter(models.Document.num_ref == num_ref, models.Document.est_sup == True).first()
+    doc = db.query(models.Document).filter(
+        models.Document.num_ref == num_ref, 
+        models.Document.date_suppression.is_not(None)
+    ).first()
+    
     if not doc:
         return None
 
-    doc.est_sup = False
+    doc.date_suppression = None
 
-    # Journalisation
     create_log(db, f"Restauration du document {num_ref}", im_user, num_ref)
 
     db.commit()
@@ -169,9 +174,11 @@ def hard_delete_document(db: Session, num_ref: str, im_user: str):
         return False
 
     if os.path.exists(doc.file_path):
-        os.remove(doc.file_path)
+        try:
+            os.remove(doc.file_path)
+        except OSError:
+            pass
 
-    # Journalisation (num_ref_doc à None car le document est définitivement supprimé)
     create_log(db, f"Suppression définitive du document {num_ref}", im_user, None)
 
     db.delete(doc)
@@ -179,7 +186,11 @@ def hard_delete_document(db: Session, num_ref: str, im_user: str):
     return True
 
 def update_document(db: Session, num_ref: str, doc_update: schemas.DocumentUpdate, im_user: str):
-    db_doc = db.query(models.Document).filter(models.Document.num_ref == num_ref, models.Document.est_sup == False).first()
+    db_doc = db.query(models.Document).filter(
+        models.Document.num_ref == num_ref, 
+        models.Document.date_suppression.is_(None)
+    ).first()
+    
     if not db_doc:
         return None
 
@@ -188,9 +199,29 @@ def update_document(db: Session, num_ref: str, doc_update: schemas.DocumentUpdat
     for key, value in update_data.items():
         setattr(db_doc, key, value)
 
-    # Journalisation
-    create_log(db, f"Mise à jour des informations du document {num_ref}", im_user, num_ref)
+    create_log(db, f"Mise à jour des informations du document {num_ref}", im_user, im_user)
 
     db.commit()
     db.refresh(db_doc)
     return db_doc
+
+def purge_expired_trash_documents(db: Session):
+    """Purge automatique des documents en corbeille depuis plus de 30 jours."""
+    limit_date = datetime.utcnow() - timedelta(days=30)
+    
+    expired_docs = db.query(models.Document).filter(
+        models.Document.date_suppression.is_not(None),
+        models.Document.date_suppression <= limit_date
+    ).all()
+
+    for doc in expired_docs:
+        if os.path.exists(doc.file_path):
+            try:
+                os.remove(doc.file_path)
+            except OSError:
+                pass
+        
+        create_log(db, f"Purge automatique du document expiré {doc.num_ref}", "SYSTEM", None)
+        db.delete(doc)
+        
+    db.commit()

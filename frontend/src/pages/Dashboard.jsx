@@ -39,16 +39,9 @@ export default function Dashboard({ user: initialUser, onLogout }) {
   const [trashDocuments, setTrashDocuments] = useState([]);
   const [trashLoading, setTrashLoading] = useState(false);
 
-  // Filtres de recherche
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [searchFilters, setSearchFilters] = useState({
-    num_ref: "",
-    cat: "",
-    annee_redac: "",
-    file_format: "",
-    title: ""
-  });
-  const [searchLoading, setSearchLoading] = useState(false);
+  // Recherche dynamique globale
+  // La recherche s'effectue directement pendant la saisie, sans bouton.
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Modales
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -163,37 +156,33 @@ export default function Dashboard({ user: initialUser, onLogout }) {
     return remaining > 0 ? remaining : 0;
   };
 
-  const handleExecuteSearch = async (overrideFilters = null) => {
-    setSearchLoading(true);
-    try {
-      const activeFilters = overrideFilters || searchFilters;
-      const queryParams = new URLSearchParams();
+  // Recherche dynamique dans TOUS les documents chargés.
+  // Lorsque la barre est vide, on conserve l'affichage lié à la catégorie sélectionnée.
+  const searchedDocuments = allDocuments.filter((doc) => {
+    const query = searchQuery.trim().toLowerCase();
 
-      if (activeFilters.title.trim()) queryParams.append("title", activeFilters.title.trim());
-      if (activeFilters.num_ref.trim()) queryParams.append("num_ref", activeFilters.num_ref.trim());
-      if (activeFilters.cat.trim()) queryParams.append("cat", activeFilters.cat.trim());
-      if (activeFilters.annee_redac.trim()) queryParams.append("annee_redac", activeFilters.annee_redac.trim());
-      if (activeFilters.file_format.trim()) queryParams.append("file_format", activeFilters.file_format.trim());
+    if (!query) return true;
 
-      const url = `${API_BASE_URL}/search?${queryParams.toString()}`;
-      const response = await fetch(url, { headers: getAuthHeaders() });
-      if (response.ok) {
-        const data = await response.json();
-        const list = Array.isArray(data) ? data : data.documents || [];
-        setDocuments(list);
-      }
-    } catch (error) {
-      console.error("Erreur recherche :", error);
-    } finally {
-      setSearchLoading(false);
-    }
-  };
+    const fields = [
+      doc.num_ref,
+      doc.title,
+      doc.cat,
+      doc.annee_redac,
+      doc.format
+    ];
 
-  const handleResetSearch = () => {
-    const resetState = { num_ref: "", cat: "", annee_redac: "", file_format: "", title: "" };
-    setSearchFilters(resetState);
-    fetchDocuments(selectedCategory);
-  };
+    return fields.some((value) =>
+      value !== null &&
+      value !== undefined &&
+      String(value).toLowerCase().includes(query)
+    );
+  });
+
+  // Avec une recherche active, on cherche dans toute la base
+  // même si une catégorie a été sélectionnée.
+  const displayedDocuments = searchQuery.trim()
+    ? searchedDocuments
+    : documents;
 
   useEffect(() => {
     fetchAllDocuments();
@@ -644,111 +633,99 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                 </div>
               </div>
 
-              {/* RECHERCHE INTÉGRÉE */}
-              <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "16px", marginBottom: "24px", boxShadow: "0 2px 5px rgba(0,0,0,0.03)" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                  <div style={{ flex: 1, minWidth: "240px", display: "flex", alignItems: "center", backgroundColor: theme.inputBg, border: `1px solid ${theme.border}`, borderRadius: "8px", padding: "4px 12px" }}>
-                    <i className="bi bi-search" style={{ color: theme.textSecondary, fontSize: "15px", marginRight: "10px" }}></i>
-                    <input
-                      type="text"
-                      placeholder="Rechercher par titre ou mot-clé..."
-                      value={searchFilters.title}
-                      onChange={(e) => setSearchFilters({ ...searchFilters, title: e.target.value })}
-                      onKeyDown={(e) => e.key === "Enter" && handleExecuteSearch()}
-                      style={{ width: "100%", border: "none", outline: "none", fontSize: "13px", color: theme.textPrimary, backgroundColor: "transparent", padding: "8px 0" }}
-                    />
-                    {searchFilters.title && (
-                      <button onClick={handleResetSearch} style={{ background: "none", border: "none", cursor: "pointer", color: theme.textSecondary }}>
-                        <i className="bi bi-x-lg"></i>
-                      </button>
-                    )}
-                  </div>
+              {/* RECHERCHE DYNAMIQUE GLOBALE */}
+              <div
+                style={{
+                  backgroundColor: theme.cardBg,
+                  borderRadius: "12px",
+                  border: `1px solid ${theme.border}`,
+                  padding: "16px",
+                  marginBottom: "24px",
+                  boxShadow: "0 2px 5px rgba(0,0,0,0.03)"
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    backgroundColor: theme.inputBg,
+                    border: `1px solid ${theme.border}`,
+                    borderRadius: "10px",
+                    padding: "5px 14px"
+                  }}
+                >
+                  <i
+                    className="bi bi-search"
+                    style={{
+                      color: theme.textSecondary,
+                      fontSize: "16px",
+                      marginRight: "10px"
+                    }}
+                  ></i>
 
-                  <button
-                    onClick={() => handleExecuteSearch()}
-                    style={{ backgroundColor: "#3b82f6", color: "#ffffff", border: "none", borderRadius: "8px", padding: "10px 18px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}
-                  >
-                    Rechercher
-                  </button>
+                  <input
+                    type="text"
+                    placeholder="Rechercher dans tous les documents : référence, titre, catégorie, année, format..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    style={{
+                      width: "100%",
+                      border: "none",
+                      outline: "none",
+                      fontSize: "13px",
+                      color: theme.textPrimary,
+                      backgroundColor: "transparent",
+                      padding: "9px 0"
+                    }}
+                  />
 
-                  <button
-                    onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                    style={{ backgroundColor: theme.hoverBg, color: theme.textPrimary, border: `1px solid ${theme.border}`, borderRadius: "8px", padding: "10px 14px", fontSize: "13px", fontWeight: "600", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
-                  >
-                    <i className="bi bi-funnel-fill"></i> Filtres avancés
-                  </button>
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery("")}
+                      title="Effacer la recherche"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        color: theme.textSecondary,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: "4px"
+                      }}
+                    >
+                      <i className="bi bi-x-lg"></i>
+                    </button>
+                  )}
                 </div>
 
-                {/* FILTRES AVANCÉS */}
-                {showAdvancedFilters && (
-                  <div style={{ marginTop: "16px", paddingTop: "16px", borderTop: `1px solid ${theme.border}`, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px" }}>
-                    <div>
-                      <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px", color: theme.textSecondary }}>Référence</label>
-                      <input
-                        type="text"
-                        placeholder="Ex: REF-2026-001"
-                        value={searchFilters.num_ref}
-                        onChange={(e) => setSearchFilters({ ...searchFilters, num_ref: e.target.value })}
-                        style={{ width: "100%", padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, fontSize: "13px", color: theme.textPrimary, backgroundColor: theme.inputBg }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px", color: theme.textSecondary }}>Catégorie</label>
-                      <select
-                        value={searchFilters.cat}
-                        onChange={(e) => setSearchFilters({ ...searchFilters, cat: e.target.value })}
-                        style={{ width: "100%", padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, fontSize: "13px", color: theme.textPrimary, backgroundColor: theme.inputBg }}
-                      >
-                        <option value="">Toutes</option>
-                        <option value="Nomination">Nomination</option>
-                        <option value="Finance">Finance</option>
-                        <option value="Développement">Développement</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px", color: theme.textSecondary }}>Année</label>
-                      <input
-                        type="number"
-                        placeholder="Ex: 2026"
-                        value={searchFilters.annee_redac}
-                        onChange={(e) => setSearchFilters({ ...searchFilters, annee_redac: e.target.value })}
-                        style={{ width: "100%", padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, fontSize: "13px", color: theme.textPrimary, backgroundColor: theme.inputBg }}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px", color: theme.textSecondary }}>Format</label>
-                      <select
-                        value={searchFilters.file_format}
-                        onChange={(e) => setSearchFilters({ ...searchFilters, file_format: e.target.value })}
-                        style={{ width: "100%", padding: "8px", borderRadius: "6px", border: `1px solid ${theme.border}`, fontSize: "13px", color: theme.textPrimary, backgroundColor: theme.inputBg }}
-                      >
-                        <option value="">Tous les formats</option>
-                        <option value="pdf">PDF</option>
-                        <option value="docx">Word (.docx)</option>
-                        <option value="png">Image (.png, .jpg)</option>
-                      </select>
-                    </div>
-
-                    <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "8px" }}>
-                      <button onClick={handleResetSearch} style={{ backgroundColor: theme.hoverBg, color: theme.textSecondary, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}>
-                        Réinitialiser
-                      </button>
-                      <button onClick={() => handleExecuteSearch()} style={{ backgroundColor: "#3b82f6", color: "#ffffff", border: "none", borderRadius: "6px", padding: "8px 16px", fontSize: "13px", fontWeight: "600", cursor: "pointer" }}>
-                        Appliquer
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <div
+                  style={{
+                    marginTop: "8px",
+                    fontSize: "11px",
+                    color: theme.textSecondary
+                  }}
+                >
+                  <i className="bi bi-lightning-charge-fill" style={{ marginRight: "5px" }}></i>
+                  La recherche est instantanée et s'effectue pendant la saisie.
+                  {searchQuery.trim() && (
+                    <span style={{ marginLeft: "8px", fontWeight: "600" }}>
+                      {displayedDocuments.length} résultat{displayedDocuments.length > 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* TABLEAU DES DOCUMENTS */}
               <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "20px", boxShadow: "0 2px 5px rgba(0,0,0,0.03)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
                   <h3 style={{ fontSize: "15px", fontWeight: "700", color: theme.textPrimary, margin: 0 }}>
-                    {selectedCategory ? `Catégorie : ${selectedCategory}` : "Liste des Documents"}
+                    {searchQuery.trim()
+                      ? `Résultats de recherche (${displayedDocuments.length})`
+                      : selectedCategory
+                        ? `Catégorie : ${selectedCategory}`
+                        : "Liste des Documents"}
                   </h3>
 
                   <button onClick={() => { fetchAllDocuments(); fetchDocuments(selectedCategory); }} style={{ backgroundColor: theme.hoverBg, color: theme.textPrimary, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "6px 12px", fontSize: "12px", fontWeight: "600", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
@@ -756,9 +733,9 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                   </button>
                 </div>
 
-                {loading || searchLoading ? (
+                {loading ? (
                   <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Chargement en cours...</p>
-                ) : documents.length === 0 ? (
+                ) : displayedDocuments.length === 0 ? (
                   <p style={{ color: theme.textSecondary, fontSize: "13px", padding: "20px 0", textAlign: "center" }}>
                     Aucun document trouvé.
                   </p>
@@ -775,7 +752,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                         </tr>
                       </thead>
                       <tbody>
-                        {documents.map((doc) => (
+                        {displayedDocuments.map((doc) => (
                           <tr key={doc.num_ref} style={{ borderBottom: `1px solid ${theme.border}` }}>
                             <td style={{ padding: "12px 14px", fontWeight: "700", color: theme.textPrimary }}>{doc.num_ref}</td>
                             <td style={{ padding: "12px 14px", color: theme.textPrimary }}>{doc.title}</td>

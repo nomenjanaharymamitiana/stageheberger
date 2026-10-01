@@ -6,7 +6,7 @@ const API_BASE_URL = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}
 const CATEGORIES = [
   { value: "Nomination", label: "Nomination" },
   { value: "Finance", label: "Finance" },
-  { value: "Autre", label: "Autre / Administratif" }
+  { value: "Autre", label: "Developpement" }
 ];
 
 export default function DocumentUploadModal({ isOpen, onClose, onSuccess, user }) {
@@ -185,10 +185,10 @@ export default function DocumentUploadModal({ isOpen, onClose, onSuccess, user }
             />
           </div>
 
-          {/* Badge récapitulatif de l'agent connecté */}
-          <div style={modalStyles.infoBox}>
+          {/* Badge récapitulatif de l'agent connecté
+          {/* <div style={modalStyles.infoBox}>
             <i className="bi bi-person-badge"></i> Agent connecté : <strong>{user?.nom ? `${user.nom} ${user?.prenom || ""}` : "Agent"}</strong> (IM: <strong>{agentMatricule || "Non défini"}</strong>)
-          </div>
+          </div> */} 
 
           <div style={modalStyles.field}>
             <label style={modalStyles.label}>Fichier Document (PDF/Image) *</label>

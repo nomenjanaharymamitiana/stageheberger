@@ -8,6 +8,7 @@ import translations from "../locales/translations.json";
 const API_DOCUMENTS = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/v1/documents`;
 const API_JOURNAL = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/v1/journal`;
 const API_USERS = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/v1/users`;
+const API_PASSWORD_REQUESTS = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/v1/demandes-mdp`;
 
 const CATEGORIES = [
   { id: "Nomination", icon: "bi-person-badge-fill", color: "#6366f1", bg: "#e0e7ff", darkBg: "rgba(99, 102, 241, 0.2)" },
@@ -23,12 +24,20 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
   // Mode sombre (Dark Mode)
   const [darkMode, setDarkMode] = useState(false);
 
-  // Navigation RSI : "tableau", "documents", "utilisateurs", "corbeille", "journal", "parametres"
+  // Navigation RSI : "tableau", "documents", "utilisateurs", "demandes_mdp", "corbeille", "journal", "parametres"
   const [activeTab, setActiveTab] = useState("tableau");
   
   // Sidebar et Sous-onglets Paramètres
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeSettingsSubTab, setActiveSettingsSubTab] = useState("compte");
+
+  // State Notifications Topbar
+  const [notifications, setNotifications] = useState([]);
+  const [showNotificationsMenu, setShowNotificationsMenu] = useState(false);
+
+  // State Demandes de Réinitialisation de Mot de Passe
+  const [passwordRequests, setPasswordRequests] = useState([]);
+  const [requestsLoading, setRequestsLoading] = useState(false);
 
   // Données Documents, Corbeille & Graphique
   const [documents, setDocuments] = useState([]);
@@ -99,6 +108,77 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
       "X-User-IM": token,
       "Content-Type": "application/json"
     };
+  };
+
+  // Synchronisation des notifications (Mots de passe uniquement)
+  const updateCombinedNotifications = (passRequestsList = []) => {
+    const passNotifs = passRequestsList
+      .filter((r) => r.statut === "en_attente" || r.status === "en_attente")
+      .map((req) => ({
+        id: `pwd-${req.id_dmd || req.id || req.im_user}`,
+        type: "PASSWORD_REQ",
+        title: "Demande de mot de passe",
+        message: `L'agent ${req.im_user} (${req.nom || ''} ${req.prenom || ''}) demande une réinitialisation.`,
+        date: req.date_demande || "Récemment",
+        read: false,
+        targetTab: "demandes_mdp"
+      }));
+
+    setNotifications(passNotifs);
+  };
+
+  // ---------------- API DEMANDES MOT DE PASSE ----------------
+  const fetchPasswordRequests = async () => {
+    setRequestsLoading(true);
+    try {
+      const response = await fetch(`${API_PASSWORD_REQUESTS}/pending`, { headers: getAuthHeaders() });
+      if (response.ok) {
+        const data = await response.json();
+        const list = Array.isArray(data) ? data : [];
+        setPasswordRequests(list);
+        updateCombinedNotifications(list);
+      }
+    } catch (error) {
+      console.error("Erreur récuperation des demandes de mot de passe :", error);
+    } finally {
+      setRequestsLoading(false);
+    }
+  };
+
+  const handleApproveRequest = async (requestId) => {
+    if (!window.confirm("Approuver cette demande et réinitialiser le mot de passe de l'agent ?")) return;
+    try {
+      const response = await fetch(`${API_PASSWORD_REQUESTS}/${encodeURIComponent(requestId)}/valider`, {
+        method: "PUT",
+        headers: getAuthHeaders()
+      });
+      if (response.ok) {
+        alert("Demande validée avec succès.");
+        fetchPasswordRequests();
+      } else {
+        alert("Erreur lors de l'approbation de la demande.");
+      }
+    } catch (error) {
+      console.error("Erreur approbation demande :", error);
+    }
+  };
+
+  const handleRejectRequest = async (requestId) => {
+    if (!window.confirm("Refuser cette demande de réinitialisation ?")) return;
+    try {
+      const response = await fetch(`${API_PASSWORD_REQUESTS}/${encodeURIComponent(requestId)}/rejeter`, {
+        method: "PUT",
+        headers: getAuthHeaders()
+      });
+      if (response.ok) {
+        alert("Demande rejetée avec succès.");
+        fetchPasswordRequests();
+      } else {
+        alert("Erreur lors du rejet de la demande.");
+      }
+    } catch (error) {
+      console.error("Erreur rejet demande :", error);
+    }
   };
 
   // ---------------- API DOCUMENTS & CORBEILLE ----------------
@@ -374,6 +454,14 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
   useEffect(() => {
     fetchAllDocuments();
     fetchDocuments(null);
+    fetchPasswordRequests();
+
+    // Vérification automatique des nouvelles demandes toutes les 10 secondes
+    const passwordRequestInterval = setInterval(() => {
+      fetchPasswordRequests();
+    }, 10000);
+
+    return () => clearInterval(passwordRequestInterval);
   }, []);
 
   useEffect(() => {
@@ -383,6 +471,8 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
       fetchTrashDocuments();
     } else if (activeTab === "utilisateurs") {
       fetchUsers();
+    } else if (activeTab === "demandes_mdp") {
+      fetchPasswordRequests();
     }
   }, [activeTab]);
 
@@ -504,6 +594,8 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
     );
   });
 
+  const unreadNotifCount = notifications.filter(n => !n.read).length;
+
   return (
     <div className="layout-container" style={{ backgroundColor: theme.bg, color: theme.textPrimary, fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif", display: "flex", minHeight: "100vh", transition: "background-color 0.3s, color 0.3s" }}>
       
@@ -585,6 +677,35 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
               }}
             >
               <i className="bi bi-people-fill"></i> Utilisateurs (DAG / RH)
+            </button>
+
+            {/* ONGLET DEMANDES DE MOT DE PASSE */}
+            <button
+              onClick={() => { setActiveTab("demandes_mdp"); fetchPasswordRequests(); }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "11px 14px",
+                borderRadius: "10px",
+                border: "none",
+                backgroundColor: activeTab === "demandes_mdp" ? (darkMode ? "#3b82f6" : "#0f172a") : "transparent",
+                color: activeTab === "demandes_mdp" ? "#ffffff" : theme.textSecondary,
+                fontWeight: activeTab === "demandes_mdp" ? "600" : "500",
+                cursor: "pointer",
+                textAlign: "left",
+                fontSize: "14px",
+                transition: "all 0.2s"
+              }}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                <i className="bi bi-key-fill"></i> Demandes Mot de passe
+              </span>
+              {passwordRequests.filter(r => r.statut === "en_attente" || r.status === "en_attente").length > 0 && (
+                <span style={{ backgroundColor: "#ef4444", color: "#fff", fontSize: "11px", borderRadius: "10px", padding: "2px 7px", fontWeight: "700" }}>
+                  {passwordRequests.filter(r => r.statut === "en_attente" || r.status === "en_attente").length}
+                </span>
+              )}
             </button>
 
             {/* ONGLET CORBEILLE */}
@@ -711,6 +832,125 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
         <header style={{ backgroundColor: theme.sidebarBg, padding: "14px 28px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "flex-end", alignItems: "center", transition: "all 0.3s" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
             
+            {/* BOUTON DE NOTIFICATION AVEC CLOCHETTE EN HAUT */}
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={() => setShowNotificationsMenu(!showNotificationsMenu)}
+                style={{
+                  backgroundColor: theme.bg,
+                  border: `1px solid ${theme.border}`,
+                  color: theme.textPrimary,
+                  borderRadius: "50%",
+                  width: "36px",
+                  height: "36px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                  position: "relative"
+                }}
+                title="Notifications"
+              >
+                <i className="bi bi-bell-fill"></i>
+                {unreadNotifCount > 0 && (
+                  <span style={{
+                    position: "absolute",
+                    top: "-2px",
+                    right: "-2px",
+                    backgroundColor: "#ef4444",
+                    color: "#ffffff",
+                    borderRadius: "50%",
+                    width: "16px",
+                    height: "16px",
+                    fontSize: "10px",
+                    fontWeight: "bold",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center"
+                  }}>
+                    {unreadNotifCount}
+                  </span>
+                )}
+              </button>
+
+              {/* MENU DÉROULANT DES NOTIFICATIONS DE LA BARRE SUPÉRIEURE */}
+              {showNotificationsMenu && (
+                <div style={{
+                  position: "absolute",
+                  right: 0,
+                  top: "45px",
+                  width: "340px",
+                  backgroundColor: theme.cardBg,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: "10px",
+                  boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
+                  zIndex: 200,
+                  overflow: "hidden"
+                }}>
+                  <div style={{ padding: "12px 16px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <strong style={{ fontSize: "14px", color: theme.textPrimary }}>Notifications</strong>
+                    <span style={{ fontSize: "11px", color: theme.textSecondary }}>{unreadNotifCount} nouvelle(s)</span>
+                  </div>
+
+                  <div style={{ maxHeight: "280px", overflowY: "auto" }}>
+                    {notifications.length === 0 ? (
+                      <p style={{ padding: "16px", fontSize: "12px", color: theme.textSecondary, textAlign: "center", margin: 0 }}>
+                        Aucune notification pour le moment.
+                      </p>
+                    ) : (
+                      notifications.map((notif) => (
+                        <div
+                          key={notif.id}
+                          onClick={() => {
+                            setActiveTab(notif.targetTab || "demandes_mdp");
+                            setShowNotificationsMenu(false);
+                          }}
+                          style={{
+                            padding: "12px 16px",
+                            borderBottom: `1px solid ${theme.border}`,
+                            backgroundColor: notif.read ? "transparent" : (darkMode ? "rgba(59, 130, 246, 0.1)" : "#f0f9ff"),
+                            cursor: "pointer",
+                            transition: "background-color 0.2s"
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                            <i className="bi bi-key-fill" style={{ color: "#f59e0b", fontSize: "14px" }}></i>
+                            <strong style={{ fontSize: "13px", color: theme.textPrimary }}>{notif.title}</strong>
+                          </div>
+                          <p style={{ margin: "0 0 6px 0", fontSize: "12px", color: theme.textSecondary }}>{notif.message}</p>
+                          <span style={{ fontSize: "10px", color: theme.textSecondary }}>{notif.date}</span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {notifications.length > 0 && (
+                    <button
+                      onClick={() => {
+                        setActiveTab("demandes_mdp");
+                        setShowNotificationsMenu(false);
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "10px",
+                        backgroundColor: theme.hoverBg,
+                        border: "none",
+                        borderTop: `1px solid ${theme.border}`,
+                        color: "#3b82f6",
+                        fontSize: "12px",
+                        fontWeight: "600",
+                        cursor: "pointer",
+                        textAlign: "center"
+                      }}
+                    >
+                      Voir les demandes de mot de passe
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div style={{ display: "flex", alignItems: "center", backgroundColor: theme.bg, borderRadius: "20px", padding: "3px", border: `1px solid ${theme.border}` }}>
               {["fr", "mg"].map((l) => (
                 <button
@@ -1078,6 +1318,93 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
             </div>
           )}
 
+          {/* TAB : DEMANDES DE MOT DE PASSE */}
+          {activeTab === "demandes_mdp" && (
+            <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "20px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+                <div>
+                  <h3 style={{ fontSize: "18px", fontWeight: "700", color: theme.textPrimary, margin: 0, display: "flex", alignItems: "center", gap: "10px" }}>
+                    <i className="bi bi-key-fill" style={{ color: "#f59e0b" }}></i>
+                    Demandes de Réinitialisation de Mot de Passe
+                  </h3>
+                  <p style={{ fontSize: "12px", color: theme.textSecondary, margin: "4px 0 0 0" }}>
+                    Validez ou refusez les demandes de réinitialisation émises par les agents.
+                  </p>
+                </div>
+                <button
+                  onClick={fetchPasswordRequests}
+                  style={{ backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}`, color: theme.textPrimary, padding: "8px 14px", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}
+                >
+                  <i className="bi bi-arrow-clockwise"></i> Actualiser
+                </button>
+              </div>
+
+              {requestsLoading ? (
+                <p style={{ textAlign: "center", padding: "20px", color: theme.textSecondary }}>Chargement des demandes...</p>
+              ) : passwordRequests.length === 0 ? (
+                <p style={{ textAlign: "center", padding: "20px", color: theme.textSecondary }}>Aucune demande de réinitialisation trouvée.</p>
+              ) : (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${theme.border}`, color: theme.textSecondary }}>
+                      <th style={{ padding: "12px" }}>Agent (IM)</th>
+                      <th style={{ padding: "12px" }}>Nom & Prénom</th>
+                      <th style={{ padding: "12px" }}>Date de demande</th>
+                      <th style={{ padding: "12px" }}>Statut</th>
+                      <th style={{ padding: "12px", textAlign: "right" }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {passwordRequests.map((req) => {
+                      const reqId = req.id_dmd || req.id || req.im_user;
+                      const status = req.statut || req.status || "en_attente";
+                      
+                      return (
+                        <tr key={reqId} style={{ borderBottom: `1px solid ${theme.border}` }}>
+                          <td style={{ padding: "12px", fontWeight: "700" }}>{req.im_user}</td>
+                          <td style={{ padding: "12px" }}>{req.nom || "—"} {req.prenom || ""}</td>
+                          <td style={{ padding: "12px" }}>{req.date_demande || "Non précisée"}</td>
+                          <td style={{ padding: "12px" }}>
+                            <span style={{
+                              padding: "4px 10px",
+                              borderRadius: "12px",
+                              fontWeight: "700",
+                              fontSize: "11px",
+                              backgroundColor: status === "en_attente" ? "rgba(245, 158, 11, 0.15)" : status === "validee" ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.15)",
+                              color: status === "en_attente" ? "#f59e0b" : status === "validee" ? "#10b981" : "#ef4444"
+                            }}>
+                              {status === "en_attente" ? "En attente" : status === "validee" ? "Validée" : "Rejetée"}
+                            </span>
+                          </td>
+                          <td style={{ padding: "12px", textAlign: "right", display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                            {status === "en_attente" ? (
+                              <>
+                                <button
+                                  onClick={() => handleApproveRequest(reqId)}
+                                  style={{ backgroundColor: "#10b981", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "12px" }}
+                                >
+                                  <i className="bi bi-check-lg"></i> Approuver
+                                </button>
+                                <button
+                                  onClick={() => handleRejectRequest(reqId)}
+                                  style={{ backgroundColor: "#ef4444", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "12px" }}
+                                >
+                                  <i className="bi bi-x-lg"></i> Refuser
+                                </button>
+                              </>
+                            ) : (
+                              <span style={{ fontSize: "12px", color: theme.textSecondary }}>Traitée</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
           {/* TAB 4 : CORBEILLE */}
           {activeTab === "corbeille" && (
             <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "20px" }}>
@@ -1247,7 +1574,7 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
         </main>
       </div>
 
-      {/* MODALE CRÉATION / ÉDITION UTILISATEUR (SANS LE CHAMP EMAIL) */}
+      {/* MODALE CRÉATION / ÉDITION UTILISATEUR */}
       {showUserModal && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }}>
           <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", width: "480px", maxWidth: "95vw", padding: "24px", border: `1px solid ${theme.border}` }}>

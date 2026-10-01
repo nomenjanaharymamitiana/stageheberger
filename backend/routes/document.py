@@ -118,7 +118,6 @@ def preview_document(
     if not doc or not os.path.exists(doc.file_path):
         raise HTTPException(status_code=404, detail="Document introuvable sur le serveur.")
 
-    # Enregistrement dans le journal de l'action "Consultation"
     crud_document.log_document_action(db=db, num_ref=num_ref, im_user=user_im, action_desc="Consultation/Aperçu")
 
     return FileResponse(path=doc.file_path, headers={"Content-Disposition": "inline"})
@@ -134,7 +133,6 @@ def download_document(
     if not doc or not os.path.exists(doc.file_path):
         raise HTTPException(status_code=404, detail="Document introuvable sur le serveur.")
 
-    # Enregistrement dans le journal de l'action "Téléchargement"
     crud_document.log_document_action(db=db, num_ref=num_ref, im_user=user_im, action_desc="Téléchargement")
 
     filename = os.path.basename(doc.file_path)

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Date, ForeignKey, Boolean
+from sqlalchemy import Column, String, Date, DateTime, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -14,13 +14,12 @@ class Document(Base):
     title = Column(String(255), nullable=False, default="Sans titre")
     file_path = Column(String(500), nullable=False)
 
-    # Champ pour la corbeille (soft delete)
-    est_sup = Column(Boolean, default=False, nullable=False)
+    # Date de suppression pour la corbeille (NULL = actif, DATETIME = en corbeille)
+    date_suppression = Column(DateTime, nullable=True, default=None)
 
     # Clé étrangère pointant directement sur la table utilisateur
     im_dag_rh = Column(String(50), ForeignKey("utilisateur.im"), nullable=True)
     
-    # Relation pointant vers la classe de base Utilisateur (ou DAG_RH)
+    # Relations
     dag_rh_rel = relationship("Utilisateur", back_populates="documents")
-
     journals = relationship("Journal", back_populates="document")

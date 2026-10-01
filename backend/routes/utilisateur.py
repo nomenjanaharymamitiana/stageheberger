@@ -3,10 +3,9 @@ from sqlalchemy.orm import Session
 from typing import Optional, List
 
 from database import get_db
-
-
 from crud import utilisateur as crud_user
 from schemas import utilisateur as schemas_user
+
 router = APIRouter(
     prefix="/api/v1/users",
     tags=["Gestion Utilisateurs (DAG / RH)"]
@@ -27,7 +26,6 @@ def get_current_user_im(
 
 
 # ---------------- 1. ENDPOINTS FIXES / PROFIL AUTONOME ----------------
-# (Doivent être déclarés AVANT les endpoints avec paramètres dynamiques /{im})
 
 @router.put("/me", response_model=schemas_user.UtilisateurOut)
 def update_profile(
@@ -50,21 +48,51 @@ def change_password(
     db: Session = Depends(get_db),
     current_im: str = Depends(get_current_user_im)
 ):
+    # 1. Contrôle de la longueur du mot de passe
     if len(password_data.new_password) < 6:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Le nouveau mot de passe doit contenir au moins 6 caractères"
         )
 
-    res = crud_user.update_utilisateur_password(db, current_im, password_data)
-    
-    if "error" in res:
-        if res["error"] == "not_found":
-            raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-        if res["error"] == "invalid_password":
-            raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
+    # 2. Récupération de l'utilisateur demandeur
+    user = crud_user.get_utilisateur_by_im(db, current_im)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Utilisateur introuvable"
+        )
 
-    return {"message": "Mot de passe modifié avec succès"}
+    # 3. Traitement selon le rôle (DAG/RH vs RSI)
+    user_role = str(user.type_user).lower() if hasattr(user, 'type_user') and user.type_user else ""
+    is_dag_or_rh = user_role in ["dag", "rh", "dag_rh"]
+
+    if is_dag_or_rh:
+        # Soumission de la demande d'attente pour validation par le RSI
+        res = crud_user.request_password_change_for_rsi(db, current_im, password_data)
+        
+        if "error" in res:
+            if res["error"] == "invalid_password":
+                raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
+            raise HTTPException(status_code=400, detail="Impossible de soumettre la demande")
+
+        return {
+            "status": "pending_rsi_validation",
+            "message": "Demande de modification de mot de passe transmise au RSI pour validation"
+        }
+    else:
+        # Modification immédiate pour le RSI / Admin
+        res = crud_user.update_utilisateur_password(db, current_im, password_data)
+        
+        if "error" in res:
+            if res["error"] == "invalid_password":
+                raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
+            raise HTTPException(status_code=400, detail="Erreur lors du changement de mot de passe")
+
+        return {
+            "status": "success",
+            "message": "Mot de passe modifié avec succès"
+        }
 
 
 # ---------------- 2. CRUD ADMINISTRATIF DAG / RH (LISTE & CREATION) ----------------
@@ -100,7 +128,6 @@ def create_user(
 
 
 # ---------------- 3. ENDPOINTS DYNAMIQUES /{IM} ----------------
-# (Toujours à la fin du fichier)
 
 @router.get("/{im}", response_model=schemas_user.UtilisateurOut)
 def get_user_by_im(im: str, db: Session = Depends(get_db)):
