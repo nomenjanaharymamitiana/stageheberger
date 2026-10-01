@@ -35,4 +35,4 @@ class UtilisateurOut(BaseModel):
     type_user: Optional[str] = None  # Rétrocompatibilité si votre BDD utilise type_user
 
     class Config:
-        from_attributes = Trues
+        from_attributes = True
