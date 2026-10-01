@@ -12,7 +12,7 @@ class Document(Base):
     annee_redac = Column(String(4), nullable=False)
 
     title = Column(String(255), nullable=False, default="Sans titre")
-    file_path = Column(String(500), nullable=False)
+    file_path = Column(String(500), nullable=True)
 
     # Date de suppression pour la corbeille (NULL = actif, DATETIME = en corbeille)
     date_suppression = Column(DateTime, nullable=True, default=None)
