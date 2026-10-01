@@ -2,22 +2,19 @@ import React, { useState } from "react";
 
 const API_BASE_URL = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/v1/documents`;
 
-// Liste explicite des 3 catégories
+// Liste des 3 catégories exactes de votre application
 const CATEGORIES = [
   { value: "Nomination", label: "Nomination" },
   { value: "Finance", label: "Finance" },
-  { value: "Autre", label: "Developpement" }
+  { value: "Développement", label: "Développement" }
 ];
 
 export default function DocumentUploadModal({ isOpen, onClose, onSuccess, user }) {
-  // Récupération dynamique du matricule / jeton
-  const agentMatricule = user?.im || user?.im_dag_rh || user?.matricule || localStorage.getItem("token") || "";
-
   const [formData, setFormData] = useState({
     num_ref: "",
     date_num: new Date().toISOString().split("T")[0],
     cat: "Nomination",
-    annee_redac: String(new Date().getFullYear()), // Valeur par défaut sous forme de chaîne (ex: "2026")
+    annee_redac: String(new Date().getFullYear()),
     title: "",
   });
   const [file, setFile] = useState(null);
@@ -25,6 +22,31 @@ export default function DocumentUploadModal({ isOpen, onClose, onSuccess, user }
   const [error, setError] = useState("");
 
   if (!isOpen) return null;
+
+  // Récupération sécurisée du Token et du Matricule
+  const getAuthCredentials = () => {
+    const token = localStorage.getItem("token") || "";
+    
+    // Essaye de récupérer l'objet user complet stocké au login
+    let storedUser = null;
+    try {
+      const uStr = localStorage.getItem("user");
+      if (uStr) storedUser = JSON.parse(uStr);
+    } catch (e) {
+      console.error("Erreur de lecture de l'utilisateur stocké :", e);
+    }
+
+    const matricule = 
+      user?.im || 
+      user?.im_dag_rh || 
+      user?.matricule || 
+      storedUser?.im || 
+      storedUser?.im_dag_rh || 
+      localStorage.getItem("im") || 
+      token;
+
+    return { token, matricule };
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -48,31 +70,30 @@ export default function DocumentUploadModal({ isOpen, onClose, onSuccess, user }
       return;
     }
 
-    if (!agentMatricule) {
+    const { token, matricule } = getAuthCredentials();
+
+    if (!token && !matricule) {
       setError("Erreur : Jeton d'authentification ou matricule introuvable. Veuillez vous re-connecter.");
       setLoading(false);
       return;
     }
 
-    // Préparation des données FormData pour multipart/form-data
+    // Préparation des données Multipart
     const uploadData = new FormData();
     uploadData.append("num_ref", formData.num_ref);
     uploadData.append("date_num", formData.date_num);
     uploadData.append("cat", formData.cat);
     uploadData.append("annee_redac", formData.annee_redac);
     uploadData.append("title", formData.title);
-    uploadData.append("im_dag_rh", agentMatricule);
+    uploadData.append("im_dag_rh", matricule);
     uploadData.append("file", file);
 
     try {
-      const token = localStorage.getItem("token") || agentMatricule;
-
       const response = await fetch(`${API_BASE_URL}/upload`, {
         method: "POST",
         headers: {
-          // Transmission des tokens et matricules d'authentification
           "Authorization": `Bearer ${token}`,
-          "X-User-IM": agentMatricule
+          "X-User-IM": matricule
         },
         body: uploadData,
       });
@@ -90,7 +111,7 @@ export default function DocumentUploadModal({ isOpen, onClose, onSuccess, user }
         setFile(null);
       } else {
         const errData = await response.json().catch(() => ({}));
-        setError(errData.detail || "Jeton d'authentification ou matricule manquant.");
+        setError(errData.detail || "Erreur lors de l'enregistrement du document.");
       }
     } catch (err) {
       console.error("Erreur d'upload :", err);
@@ -185,11 +206,6 @@ export default function DocumentUploadModal({ isOpen, onClose, onSuccess, user }
             />
           </div>
 
-          {/* Badge récapitulatif de l'agent connecté
-          {/* <div style={modalStyles.infoBox}>
-            <i className="bi bi-person-badge"></i> Agent connecté : <strong>{user?.nom ? `${user.nom} ${user?.prenom || ""}` : "Agent"}</strong> (IM: <strong>{agentMatricule || "Non défini"}</strong>)
-          </div> */} 
-
           <div style={modalStyles.field}>
             <label style={modalStyles.label}>Fichier Document (PDF/Image) *</label>
             <input
@@ -255,14 +271,6 @@ const modalStyles = {
     borderRadius: "6px",
     fontSize: "13px",
     marginBottom: "12px",
-  },
-  infoBox: {
-    backgroundColor: "#f8fafc",
-    border: "1px solid #e2e8f0",
-    color: "#334155",
-    padding: "8px 12px",
-    borderRadius: "6px",
-    fontSize: "12px",
   },
   form: {
     display: "flex",

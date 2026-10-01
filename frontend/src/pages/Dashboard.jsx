@@ -5,7 +5,6 @@ import "../styles/theme.css";
 import DocumentUploadModal from "../components/DocumentUploadModal";
 import DocumentEditModal from "../components/DocumentEditModal";
 import Parametres from "./Parametres";
-import translations from "../locales/translations.json";
 
 const API_BASE_URL = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/v1/documents`;
 
@@ -17,19 +16,18 @@ const CATEGORIES = [
 
 export default function Dashboard({ user: initialUser, onLogout }) {
   const [user, setUser] = useState(initialUser);
-  const [lang, setLang] = useState("fr");
-  const t = translations[lang] || translations["fr"];
 
-  // Mode sombre (Dark Mode)
+  // Mode sombre / clair
   const [darkMode, setDarkMode] = useState(false);
 
-  // Navigation: "tableau", "documents", "corbeille", "parametres"
+  // Navigation : "tableau", "documents", "corbeille", "parametres"
   const [activeTab, setActiveTab] = useState("tableau");
 
-  // Sidebar et Sous-onglets
+  // Sous-onglets Paramètres
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeSettingsSubTab, setActiveSettingsSubTab] = useState("compte");
 
+  // États des documents
   const [documents, setDocuments] = useState([]);
   const [allDocuments, setAllDocuments] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -39,11 +37,10 @@ export default function Dashboard({ user: initialUser, onLogout }) {
   const [trashDocuments, setTrashDocuments] = useState([]);
   const [trashLoading, setTrashLoading] = useState(false);
 
-  // Recherche dynamique globale
-  // La recherche s'effectue directement pendant la saisie, sans bouton.
+  // Recherche dynamique
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Modales
+  // Modales & États de téléchargement / prévisualisation
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [docToEdit, setDocToEdit] = useState(null);
   const [previewDoc, setPreviewDoc] = useState(null);
@@ -51,8 +48,9 @@ export default function Dashboard({ user: initialUser, onLogout }) {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [docToDelete, setDocToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [downloadingRef, setDownloadingRef] = useState(null);
 
-  // Thèmes dynamique (Clair vs Sombre)
+  // Thèmes dynamique (Clair / Sombre)
   const theme = {
     bg: darkMode ? "#0f172a" : "#f8fafc",
     sidebarBg: darkMode ? "#1e293b" : "#ffffff",
@@ -77,6 +75,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
     };
   };
 
+  // GET /api/v1/documents/
   const fetchAllDocuments = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/`, { headers: getAuthHeaders() });
@@ -90,6 +89,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
     }
   };
 
+  // GET /api/v1/documents/ ou GET /api/v1/documents/search?cat=...
   const fetchDocuments = async (category = selectedCategory) => {
     setLoading(true);
     try {
@@ -111,6 +111,24 @@ export default function Dashboard({ user: initialUser, onLogout }) {
     }
   };
 
+  // GET /api/v1/documents/me
+  const fetchMyDocuments = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/me`, { headers: getAuthHeaders() });
+      if (response.ok) {
+        const data = await response.json();
+        const list = Array.isArray(data) ? data : data.documents || [];
+        setDocuments(list);
+      }
+    } catch (error) {
+      console.error("Erreur récupération mes documents :", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // GET /api/v1/documents/trash
   const fetchTrashDocuments = async () => {
     setTrashLoading(true);
     try {
@@ -127,6 +145,37 @@ export default function Dashboard({ user: initialUser, onLogout }) {
     }
   };
 
+  // GET /api/v1/documents/{num_ref}/download
+  const handleDownload = async (doc) => {
+    setDownloadingRef(doc.num_ref);
+    try {
+      const response = await fetch(`${API_BASE_URL}/${encodeURIComponent(doc.num_ref)}/download`, {
+        headers: getAuthHeaders()
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const fileExtension = doc.format ? doc.format.toLowerCase() : "pdf";
+        a.download = `${doc.num_ref}_${doc.title.replace(/\s+/g, "_")}.${fileExtension}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      } else {
+        alert("Impossible de télécharger le document.");
+      }
+    } catch (error) {
+      console.error("Erreur lors du téléchargement :", error);
+      alert("Une erreur est survenue lors du téléchargement.");
+    } finally {
+      setDownloadingRef(null);
+    }
+  };
+
+  // POST /api/v1/documents/{num_ref}/restore
   const handleRestore = async (num_ref) => {
     try {
       const response = await fetch(`${API_BASE_URL}/${encodeURIComponent(num_ref)}/restore`, {
@@ -146,55 +195,31 @@ export default function Dashboard({ user: initialUser, onLogout }) {
     }
   };
 
-  const getDaysRemaining = (deletedAtDate) => {
-    if (!deletedAtDate) return 30;
-    const deletedDate = new Date(deletedAtDate);
-    const now = new Date();
-    const diffTime = Math.abs(now - deletedDate);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    const remaining = 30 - diffDays;
-    return remaining > 0 ? remaining : 0;
+  // DELETE /api/v1/documents/{num_ref}
+  const confirmDelete = async () => {
+    if (!docToDelete) return;
+    setIsDeleting(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/${encodeURIComponent(docToDelete.num_ref)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() }
+      });
+
+      if (response.ok) {
+        setDocuments((prev) => prev.filter((doc) => doc.num_ref !== docToDelete.num_ref));
+        setAllDocuments((prev) => prev.filter((doc) => doc.num_ref !== docToDelete.num_ref));
+        setDocToDelete(null);
+      } else {
+        alert("Erreur lors de la suppression du document.");
+      }
+    } catch (error) {
+      console.error("Erreur réseau :", error);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
-  // Recherche dynamique dans TOUS les documents chargés.
-  // Lorsque la barre est vide, on conserve l'affichage lié à la catégorie sélectionnée.
-  const searchedDocuments = allDocuments.filter((doc) => {
-    const query = searchQuery.trim().toLowerCase();
-
-    if (!query) return true;
-
-    const fields = [
-      doc.num_ref,
-      doc.title,
-      doc.cat,
-      doc.annee_redac,
-      doc.format
-    ];
-
-    return fields.some((value) =>
-      value !== null &&
-      value !== undefined &&
-      String(value).toLowerCase().includes(query)
-    );
-  });
-
-  // Avec une recherche active, on cherche dans toute la base
-  // même si une catégorie a été sélectionnée.
-  const displayedDocuments = searchQuery.trim()
-    ? searchedDocuments
-    : documents;
-
-  useEffect(() => {
-    fetchAllDocuments();
-    fetchDocuments(null);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
-
+  // GET /api/v1/documents/{num_ref}/preview
   const handleOpenPreview = async (doc) => {
     setPreviewDoc(doc);
     setPreviewLoading(true);
@@ -224,12 +249,43 @@ export default function Dashboard({ user: initialUser, onLogout }) {
   };
 
   const handleClosePreview = () => {
-    if (previewUrl) {
-      URL.revokeObjectURL(previewUrl);
-    }
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
     setPreviewDoc(null);
   };
+
+  const getDaysRemaining = (deletedAtDate) => {
+    if (!deletedAtDate) return 30;
+    const deletedDate = new Date(deletedAtDate);
+    const now = new Date();
+    const diffTime = Math.abs(now - deletedDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const remaining = 30 - diffDays;
+    return remaining > 0 ? remaining : 0;
+  };
+
+  // Filtrage local dynamique dans le tableau
+  const searchedDocuments = allDocuments.filter((doc) => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return true;
+    const fields = [doc.num_ref, doc.title, doc.cat, doc.annee_redac, doc.format];
+    return fields.some((value) =>
+      value !== null && value !== undefined && String(value).toLowerCase().includes(query)
+    );
+  });
+
+  const displayedDocuments = searchQuery.trim() ? searchedDocuments : documents;
+
+  useEffect(() => {
+    fetchAllDocuments();
+    fetchDocuments(null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   const handleCategoryClick = (catId) => {
     const newCategory = selectedCategory === catId ? null : catId;
@@ -241,29 +297,6 @@ export default function Dashboard({ user: initialUser, onLogout }) {
     return allDocuments.filter(
       (doc) => doc.cat && doc.cat.trim().toLowerCase() === catId.toLowerCase()
     ).length;
-  };
-
-  const confirmDelete = async () => {
-    if (!docToDelete) return;
-    setIsDeleting(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/${encodeURIComponent(docToDelete.num_ref)}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() }
-      });
-
-      if (response.ok) {
-        setDocuments((prev) => prev.filter((doc) => doc.num_ref !== docToDelete.num_ref));
-        setAllDocuments((prev) => prev.filter((doc) => doc.num_ref !== docToDelete.num_ref));
-        setDocToDelete(null);
-      } else {
-        alert("Erreur lors de la suppression du document.");
-      }
-    } catch (error) {
-      console.error("Erreur réseau :", error);
-    } finally {
-      setIsDeleting(false);
-    }
   };
 
   const renderPieChart = () => {
@@ -331,10 +364,10 @@ export default function Dashboard({ user: initialUser, onLogout }) {
             <img src={logoGed} alt="Logo GED" style={{ width: "42px", height: "42px", borderRadius: "10px", objectFit: "cover", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }} />
             <div>
               <h1 style={{ fontSize: "16px", fontWeight: "700", color: theme.textPrimary, margin: 0 }}>
-                {t.brand?.title || "GED District"}
+                GED District
               </h1>
               <p style={{ fontSize: "12px", color: theme.textSecondary, margin: 0 }}>
-                {t.brand?.subtitle || "Haute Matsiatra"}
+                Haute Matsiatra
               </p>
             </div>
           </div>
@@ -358,11 +391,11 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                 transition: "all 0.2s"
               }}
             >
-              <i className="bi bi-grid-1x2-fill"></i> {t.nav?.dashboard || "Tableau de bord"}
+              <i className="bi bi-grid-1x2-fill"></i> Tableau de bord
             </button>
 
             <button
-              onClick={() => { setActiveTab("documents"); fetchDocuments(null); }}
+              onClick={() => { setActiveTab("documents"); fetchMyDocuments(); }}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -400,7 +433,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                 transition: "all 0.2s"
               }}
             >
-              <i className="bi bi-trash3-fill"></i> {t.nav?.trash || "Corbeille"}
+              <i className="bi bi-trash3-fill"></i> Corbeille
             </button>
 
             <div>
@@ -426,7 +459,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                 }}
               >
                 <span style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <i className="bi bi-gear-fill"></i> {t.nav?.settings || "Paramètres"}
+                  <i className="bi bi-gear-fill"></i> Paramètres
                 </span>
                 <i className={`bi bi-chevron-${isSettingsOpen ? "up" : "down"}`} style={{ fontSize: "12px" }}></i>
               </button>
@@ -492,40 +525,18 @@ export default function Dashboard({ user: initialUser, onLogout }) {
         <div style={{ padding: "16px", borderTop: `1px solid ${theme.border}`, fontSize: "12px", color: theme.textSecondary }}>
           <p style={{ margin: "0 0 4px 0", display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#22c55e" }}></span>
-            <span>{t.brand?.status || "Connecté"}</span>
+            <span>Système En Ligne</span>
           </p>
-          <span>{t.brand?.version || "v1.0.0"}</span>
+          <span>Version v1.2.0</span>
         </div>
       </aside>
 
       {/* CONTENU PRINCIPAL */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        
         {/* TOPBAR */}
         <header style={{ backgroundColor: theme.sidebarBg, padding: "14px 28px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "flex-end", alignItems: "center", transition: "all 0.3s" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-            
-            <div style={{ display: "flex", alignItems: "center", backgroundColor: theme.bg, borderRadius: "20px", padding: "3px", border: `1px solid ${theme.border}` }}>
-              {["fr", "mg"].map((l) => (
-                <button
-                  key={l}
-                  onClick={() => setLang(l)}
-                  style={{
-                    background: lang === l ? theme.sidebarBg : "transparent",
-                    color: lang === l ? theme.textPrimary : theme.textSecondary,
-                    border: "none",
-                    borderRadius: "16px",
-                    padding: "4px 10px",
-                    cursor: "pointer",
-                    fontWeight: "700",
-                    fontSize: "12px",
-                    boxShadow: lang === l ? "0 1px 3px rgba(0,0,0,0.1)" : "none"
-                  }}
-                >
-                  {l === "fr" ? "FR" : "MG"}
-                </button>
-              ))}
-            </div>
-
             <button
               onClick={() => setDarkMode(!darkMode)}
               style={{
@@ -551,14 +562,14 @@ export default function Dashboard({ user: initialUser, onLogout }) {
 
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <div style={{ width: "36px", height: "36px", borderRadius: "50%", backgroundColor: darkMode ? "#334155" : "#e2e8f0", color: theme.textPrimary, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "700", fontSize: "14px" }}>
-                {user?.prenom ? user.prenom.charAt(0).toUpperCase() : "M"}
+                {user?.prenom ? user.prenom.charAt(0).toUpperCase() : "A"}
               </div>
               <div style={{ fontSize: "13px" }}>
                 <strong style={{ display: "block", color: theme.textPrimary, lineHeight: "1.2" }}>
-                  {user?.prenom || "Jean"} {user?.nom || ""}
+                  {user?.prenom || "Agent"} {user?.nom || ""}
                 </strong>
                 <span style={{ color: theme.textSecondary, fontSize: "11px" }}>
-                  {user?.type_user || "dag_rh"}
+                  {user?.type_user || "Gestionnaire DAG/RH"}
                 </span>
               </div>
             </div>
@@ -569,71 +580,83 @@ export default function Dashboard({ user: initialUser, onLogout }) {
           </div>
         </header>
 
-        {/* BODY */}
+        {/* MAIN BODY */}
         <main style={{ padding: "28px", flex: 1, overflowY: "auto" }}>
           
-          {/* TAB : TABLEAU DE BORD */}
+          {/* TAB 1: TABLEAU DE BORD */}
           {activeTab === "tableau" && (
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
                 <div>
                   <h2 style={{ fontSize: "22px", fontWeight: "700", color: theme.textPrimary, margin: "0 0 4px 0" }}>
-                    {t.greeting?.hello || "Bonjour"} {user?.prenom || "Jean"} !
+                    Bonjour {user?.prenom || "Administrateur"} !
                   </h2>
                   <p style={{ fontSize: "13px", color: theme.textSecondary, margin: 0 }}>
-                    Aperçu global et recherche de documents
+                    Plateforme de gestion et d'archivage des documents administratifs
                   </p>
                 </div>
                 <div style={{ backgroundColor: theme.cardBg, padding: "8px 14px", borderRadius: "8px", border: `1px solid ${theme.border}`, fontSize: "13px", color: theme.textSecondary, display: "flex", alignItems: "center", gap: "8px" }}>
                   <i className="bi bi-calendar3"></i> 
-                  {new Date().toLocaleDateString(lang === "mg" ? "mg-MG" : "fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                  {new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
                 </div>
               </div>
 
-              {/* STATISTIQUES + CAMEMBERT */}
+              {/* STATISTIQUES CARTE TOTAL & REPARTITION */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "20px", marginBottom: "24px" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "12px" }}>
-                  {CATEGORIES.map((cat) => {
-                    const count = getCategoryCount(cat.id);
-                    const isSelected = selectedCategory === cat.id;
-
-                    return (
-                      <div
-                        key={cat.id}
-                        onClick={() => handleCategoryClick(cat.id)}
-                        style={{
-                          cursor: "pointer",
-                          backgroundColor: theme.cardBg,
-                          padding: "16px",
-                          borderRadius: "12px",
-                          border: isSelected ? `2px solid ${cat.color}` : `1px solid ${theme.border}`,
-                          boxShadow: "0 2px 5px rgba(0,0,0,0.03)",
-                          transition: "all 0.2s"
-                        }}
-                      >
-                        <div style={{ backgroundColor: darkMode ? cat.darkBg : cat.bg, color: cat.color, width: "38px", height: "38px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px", fontSize: "18px" }}>
-                          <i className={`bi ${cat.icon}`}></i>
-                        </div>
-                        <h3 style={{ margin: 0, fontSize: "14px", fontWeight: "700", color: theme.textPrimary }}>
-                          {t.categories?.[cat.id] || cat.id}
-                        </h3>
-                        <span style={{ fontSize: "12px", color: theme.textSecondary, fontWeight: "600" }}>
-                          {count} {count > 1 ? "docs" : "doc"}
-                        </span>
-                      </div>
-                    );
-                  })}
+                <div style={{ backgroundColor: theme.cardBg, padding: "20px", borderRadius: "12px", border: `1px solid ${theme.border}`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+                    <span style={{ fontSize: "13px", fontWeight: "600", color: theme.textSecondary }}>Total Documents Archivés</span>
+                    <div style={{ backgroundColor: "rgba(59, 130, 246, 0.1)", color: "#3b82f6", width: "40px", height: "40px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px" }}>
+                      <i className="bi bi-files"></i>
+                    </div>
+                  </div>
+                  <h3 style={{ margin: 0, fontSize: "28px", fontWeight: "800", color: theme.textPrimary }}>{allDocuments.length}</h3>
+                  <p style={{ margin: "6px 0 0 0", fontSize: "12px", color: theme.textSecondary }}>Documents répertoriés dans le système</p>
                 </div>
 
                 <div style={{ backgroundColor: theme.cardBg, padding: "18px 20px", borderRadius: "12px", border: `1px solid ${theme.border}`, boxShadow: "0 2px 5px rgba(0,0,0,0.03)", display: "flex", flexDirection: "column", justifyContent: "center" }}>
                   <h4 style={{ margin: "0 0 14px 0", fontSize: "12px", fontWeight: "700", color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    Répartition des documents
+                    Répartition par Pôle
                   </h4>
                   {renderPieChart()}
                 </div>
               </div>
 
-              {/* RECHERCHE DYNAMIQUE GLOBALE */}
+              {/* CATEGORIES SELECTIONNABLES */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "24px" }}>
+                {CATEGORIES.map((cat) => {
+                  const count = getCategoryCount(cat.id);
+                  const isSelected = selectedCategory === cat.id;
+
+                  return (
+                    <div
+                      key={cat.id}
+                      onClick={() => handleCategoryClick(cat.id)}
+                      style={{
+                        cursor: "pointer",
+                        backgroundColor: theme.cardBg,
+                        padding: "16px",
+                        borderRadius: "12px",
+                        border: isSelected ? `2px solid ${cat.color}` : `1px solid ${theme.border}`,
+                        boxShadow: "0 2px 5px rgba(0,0,0,0.03)",
+                        transition: "all 0.2s"
+                      }}
+                    >
+                      <div style={{ backgroundColor: darkMode ? cat.darkBg : cat.bg, color: cat.color, width: "38px", height: "38px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px", fontSize: "18px" }}>
+                        <i className={`bi ${cat.icon}`}></i>
+                      </div>
+                      <h3 style={{ margin: 0, fontSize: "14px", fontWeight: "700", color: theme.textPrimary }}>
+                        {cat.id}
+                      </h3>
+                      <span style={{ fontSize: "12px", color: theme.textSecondary, fontWeight: "600" }}>
+                        {count} {count > 1 ? "documents" : "document"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* BARRE DE RECHERCHE */}
               <div
                 style={{
                   backgroundColor: theme.cardBg,
@@ -654,18 +677,11 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                     padding: "5px 14px"
                   }}
                 >
-                  <i
-                    className="bi bi-search"
-                    style={{
-                      color: theme.textSecondary,
-                      fontSize: "16px",
-                      marginRight: "10px"
-                    }}
-                  ></i>
+                  <i className="bi bi-search" style={{ color: theme.textSecondary, fontSize: "16px", marginRight: "10px" }}></i>
 
                   <input
                     type="text"
-                    placeholder="Rechercher dans tous les documents : référence, titre, catégorie, année, format..."
+                    placeholder="Rechercher par référence, titre, catégorie, année, format..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     style={{
@@ -683,7 +699,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                     <button
                       type="button"
                       onClick={() => setSearchQuery("")}
-                      title="Effacer la recherche"
+                      title="Effacer"
                       style={{
                         background: "none",
                         border: "none",
@@ -700,21 +716,11 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                   )}
                 </div>
 
-                <div
-                  style={{
-                    marginTop: "8px",
-                    fontSize: "11px",
-                    color: theme.textSecondary
-                  }}
-                >
-                  <i className="bi bi-lightning-charge-fill" style={{ marginRight: "5px" }}></i>
-                  La recherche est instantanée et s'effectue pendant la saisie.
-                  {searchQuery.trim() && (
-                    <span style={{ marginLeft: "8px", fontWeight: "600" }}>
-                      {displayedDocuments.length} résultat{displayedDocuments.length > 1 ? "s" : ""}
-                    </span>
-                  )}
-                </div>
+                {searchQuery.trim() && (
+                  <div style={{ marginTop: "8px", fontSize: "12px", color: theme.accent, fontWeight: "600" }}>
+                    {displayedDocuments.length} résultat{displayedDocuments.length > 1 ? "s" : ""} trouvé{displayedDocuments.length > 1 ? "s" : ""}
+                  </div>
+                )}
               </div>
 
               {/* TABLEAU DES DOCUMENTS */}
@@ -724,8 +730,8 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                     {searchQuery.trim()
                       ? `Résultats de recherche (${displayedDocuments.length})`
                       : selectedCategory
-                        ? `Catégorie : ${selectedCategory}`
-                        : "Liste des Documents"}
+                        ? `Filtre Catégorie : ${selectedCategory}`
+                        : "Liste des Documents Administratifs"}
                   </h3>
 
                   <button onClick={() => { fetchAllDocuments(); fetchDocuments(selectedCategory); }} style={{ backgroundColor: theme.hoverBg, color: theme.textPrimary, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "6px 12px", fontSize: "12px", fontWeight: "600", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
@@ -734,10 +740,10 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                 </div>
 
                 {loading ? (
-                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Chargement en cours...</p>
+                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Chargement des enregistrements...</p>
                 ) : displayedDocuments.length === 0 ? (
                   <p style={{ color: theme.textSecondary, fontSize: "13px", padding: "20px 0", textAlign: "center" }}>
-                    Aucun document trouvé.
+                    Aucun document ne correspond à vos critères.
                   </p>
                 ) : (
                   <div style={{ overflowX: "auto" }}>
@@ -745,7 +751,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                       <thead>
                         <tr style={{ backgroundColor: theme.bg, borderBottom: `1px solid ${theme.border}`, color: theme.textSecondary }}>
                           <th style={{ padding: "12px 14px" }}>Référence</th>
-                          <th style={{ padding: "12px 14px" }}>Titre</th>
+                          <th style={{ padding: "12px 14px" }}>Titre du document</th>
                           <th style={{ padding: "12px 14px" }}>Catégorie</th>
                           <th style={{ padding: "12px 14px" }}>Format</th>
                           <th style={{ padding: "12px 14px", textAlign: "right" }}>Actions</th>
@@ -766,13 +772,22 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                             </td>
                             <td style={{ padding: "12px 14px", textAlign: "right" }}>
                               <div style={{ display: "inline-flex", gap: "6px" }}>
+                                <button 
+                                  onClick={() => handleDownload(doc)} 
+                                  disabled={downloadingRef === doc.num_ref}
+                                  style={{ backgroundColor: darkMode ? "rgba(16, 185, 129, 0.15)" : "#e6f4ea", border: "1px solid #a7f3d0", borderRadius: "6px", padding: "5px 9px", cursor: "pointer", color: "#10b981" }} 
+                                  title="Télécharger"
+                                >
+                                  <i className={`bi ${downloadingRef === doc.num_ref ? "bi-hourglass-split" : "bi-download"}`}></i>
+                                </button>
+                                
                                 <button onClick={() => handleOpenPreview(doc)} style={{ backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: theme.textPrimary }} title="Aperçu">
                                   <i className="bi bi-eye"></i>
                                 </button>
                                 <button onClick={() => setDocToEdit(doc)} style={{ backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: theme.textPrimary }} title="Modifier">
                                   <i className="bi bi-pencil"></i>
                                 </button>
-                                <button onClick={() => setDocToDelete(doc)} style={{ backgroundColor: darkMode ? "rgba(239, 68, 68, 0.2)" : "#fef2f2", border: "1px solid #fca5a5", borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: "#ef4444" }} title="Supprimer (Mettre en corbeille)">
+                                <button onClick={() => setDocToDelete(doc)} style={{ backgroundColor: darkMode ? "rgba(239, 68, 68, 0.2)" : "#fef2f2", border: "1px solid #fca5a5", borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: "#ef4444" }} title="Supprimer">
                                   <i className="bi bi-trash"></i>
                                 </button>
                               </div>
@@ -787,23 +802,23 @@ export default function Dashboard({ user: initialUser, onLogout }) {
             </>
           )}
 
-          {/* TAB : MES DOCUMENTS */}
+          {/* TAB 2: MES DOCUMENTS */}
           {activeTab === "documents" && (
             <div>
               <div style={{ marginBottom: "20px" }}>
                 <h2 style={{ fontSize: "20px", fontWeight: "700", color: theme.textPrimary, margin: "0 0 4px 0" }}>
-                  Mes Documents
+                  Mes Documents Importés
                 </h2>
                 <p style={{ fontSize: "13px", color: theme.textSecondary, margin: 0 }}>
-                  Consultez l'ensemble de la base documentaire du District
+                  Liste des documents que vous avez enregistrés dans le système
                 </p>
               </div>
 
               <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "20px", boxShadow: "0 2px 5px rgba(0,0,0,0.03)" }}>
                 {loading ? (
-                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Chargement...</p>
+                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Chargement de vos documents...</p>
                 ) : documents.length === 0 ? (
-                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Aucun document disponible.</p>
+                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Vous n'avez encore créé aucun document.</p>
                 ) : (
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
@@ -829,13 +844,22 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                             <td style={{ padding: "12px 14px", color: theme.textSecondary, fontWeight: "600" }}>{doc.annee_redac || "-"}</td>
                             <td style={{ padding: "12px 14px", textAlign: "right" }}>
                               <div style={{ display: "inline-flex", gap: "6px" }}>
+                                <button 
+                                  onClick={() => handleDownload(doc)} 
+                                  disabled={downloadingRef === doc.num_ref}
+                                  style={{ backgroundColor: darkMode ? "rgba(16, 185, 129, 0.15)" : "#e6f4ea", border: "1px solid #a7f3d0", borderRadius: "6px", padding: "5px 9px", cursor: "pointer", color: "#10b981" }} 
+                                  title="Télécharger"
+                                >
+                                  <i className={`bi ${downloadingRef === doc.num_ref ? "bi-hourglass-split" : "bi-download"}`}></i>
+                                </button>
+
                                 <button onClick={() => handleOpenPreview(doc)} style={{ backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: theme.textPrimary }} title="Aperçu">
                                   <i className="bi bi-eye"></i>
                                 </button>
                                 <button onClick={() => setDocToEdit(doc)} style={{ backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: theme.textPrimary }} title="Modifier">
                                   <i className="bi bi-pencil"></i>
                                 </button>
-                                <button onClick={() => setDocToDelete(doc)} style={{ backgroundColor: darkMode ? "rgba(239, 68, 68, 0.2)" : "#fef2f2", border: "1px solid #fca5a5", borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: "#ef4444" }} title="Supprimer (Mettre en corbeille)">
+                                <button onClick={() => setDocToDelete(doc)} style={{ backgroundColor: darkMode ? "rgba(239, 68, 68, 0.2)" : "#fef2f2", border: "1px solid #fca5a5", borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: "#ef4444" }} title="Supprimer">
                                   <i className="bi bi-trash"></i>
                                 </button>
                               </div>
@@ -850,16 +874,16 @@ export default function Dashboard({ user: initialUser, onLogout }) {
             </div>
           )}
 
-          {/* TAB : CORBEILLE */}
+          {/* TAB 3: CORBEILLE */}
           {activeTab === "corbeille" && (
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
                 <div>
                   <h2 style={{ fontSize: "20px", fontWeight: "700", color: theme.textPrimary, margin: "0 0 4px 0" }}>
-                    Corbeille des Documents
+                    Corbeille
                   </h2>
                   <p style={{ fontSize: "13px", color: theme.textSecondary, margin: 0 }}>
-                    Les documents placés en corbeille seront définitivement effacés automatiquement après 30 jours.
+                    Les documents supprimés restent disponibles pendant 30 jours avant leur suppression définitive.
                   </p>
                 </div>
                 <button
@@ -872,9 +896,9 @@ export default function Dashboard({ user: initialUser, onLogout }) {
 
               <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "20px", boxShadow: "0 2px 5px rgba(0,0,0,0.03)" }}>
                 {trashLoading ? (
-                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Chargement de la corbeille...</p>
+                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Vérification de la corbeille...</p>
                 ) : trashDocuments.length === 0 ? (
-                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>La corbeille est vide.</p>
+                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Aucun document dans la corbeille.</p>
                 ) : (
                   <div style={{ overflowX: "auto" }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
@@ -883,7 +907,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                           <th style={{ padding: "12px 14px" }}>Référence</th>
                           <th style={{ padding: "12px 14px" }}>Titre</th>
                           <th style={{ padding: "12px 14px" }}>Catégorie</th>
-                          <th style={{ padding: "12px 14px" }}>Temps restant</th>
+                          <th style={{ padding: "12px 14px" }}>Jours restants</th>
                           <th style={{ padding: "12px 14px", textAlign: "right" }}>Actions</th>
                         </tr>
                       </thead>
@@ -901,7 +925,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                               </td>
                               <td style={{ padding: "12px 14px" }}>
                                 <span style={{ fontSize: "12px", fontWeight: "600", color: daysLeft <= 5 ? "#ef4444" : "#f59e0b", backgroundColor: darkMode ? "rgba(245, 158, 11, 0.1)" : "#fffbeb", padding: "4px 8px", borderRadius: "6px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                                  <i className="bi bi-clock-history"></i> {daysLeft} jour{daysLeft > 1 ? "s" : ""} restant{daysLeft > 1 ? "s" : ""}
+                                  <i className="bi bi-clock-history"></i> {daysLeft} jour{daysLeft > 1 ? "s" : ""}
                                 </span>
                               </td>
                               <td style={{ padding: "12px 14px", textAlign: "right" }}>
@@ -919,16 +943,11 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                     </table>
                   </div>
                 )}
-                
-                <p style={{ marginTop: "16px", fontSize: "12px", color: theme.textSecondary, textAlign: "center", fontStyle: "italic" }}>
-                  <i className="bi bi-info-circle-fill" style={{ marginRight: "4px" }}></i>
-                  Remarque : Les documents envoyés à la corbeille sont automatiquement supprimés du système après 30 jours.
-                </p>
               </div>
             </div>
           )}
 
-          {/* TAB : PARAMÈTRES */}
+          {/* TAB 4: PARAMÈTRES */}
           {activeTab === "parametres" && (
             <Parametres
               user={user}
@@ -951,9 +970,17 @@ export default function Dashboard({ user: initialUser, onLogout }) {
               <h3 style={{ margin: 0, fontSize: "15px", fontWeight: "700" }}>
                 Aperçu : {previewDoc.title} ({previewDoc.num_ref})
               </h3>
-              <button onClick={handleClosePreview} style={{ background: "none", border: "none", color: theme.textPrimary, cursor: "pointer", fontSize: "18px" }}>
-                <i className="bi bi-x-lg"></i>
-              </button>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button 
+                  onClick={() => handleDownload(previewDoc)} 
+                  style={{ backgroundColor: "#10b981", color: "#ffffff", border: "none", borderRadius: "6px", padding: "6px 12px", fontSize: "12px", cursor: "pointer", fontWeight: "600", display: "flex", alignItems: "center", gap: "4px" }}
+                >
+                  <i className="bi bi-download"></i> Télécharger
+                </button>
+                <button onClick={handleClosePreview} style={{ background: "none", border: "none", color: theme.textPrimary, cursor: "pointer", fontSize: "18px" }}>
+                  <i className="bi bi-x-lg"></i>
+                </button>
+              </div>
             </div>
             <div style={{ flex: 1, backgroundColor: theme.bg, display: "flex", justifyContent: "center", alignItems: "center" }}>
               {previewLoading ? (
@@ -968,27 +995,27 @@ export default function Dashboard({ user: initialUser, onLogout }) {
         </div>
       )}
 
-      {/* MODALE DE SUPPRESSION */}
+      {/* MODALE DE SUPPRESSION (SOFT-DELETE) */}
       {docToDelete && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(15, 23, 42, 0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1050 }}>
           <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", padding: "24px", maxWidth: "400px", width: "90%", boxShadow: "0 10px 25px rgba(0,0,0,0.2)" }}>
             <h3 style={{ margin: "0 0 12px 0", color: "#ef4444", fontSize: "16px" }}>Mettre en corbeille</h3>
             <p style={{ fontSize: "13px", color: theme.textPrimary, marginBottom: "20px" }}>
-              Déplacer le document <strong>{docToDelete.title}</strong> vers la corbeille ?
+              Voulez-vous déplacer le document <strong>{docToDelete.title}</strong> vers la corbeille ?
             </p>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
               <button onClick={() => setDocToDelete(null)} style={{ backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}`, color: theme.textPrimary, padding: "8px 14px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "13px" }}>
                 Annuler
               </button>
               <button onClick={confirmDelete} disabled={isDeleting} style={{ backgroundColor: "#ef4444", border: "none", color: "#ffffff", padding: "8px 14px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "13px" }}>
-                {isDeleting ? "Déplacement..." : "Mettre en corbeille"}
+                {isDeleting ? "Déplacement..." : "Supprimer"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODALES UPLOAD / EDIT */}
+      {/* MODALES UPLOAD & EDIT */}
       {isModalOpen && (
         <DocumentUploadModal
           isOpen={isModalOpen}
