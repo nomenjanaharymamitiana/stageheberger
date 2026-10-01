@@ -109,35 +109,81 @@ def hard_delete_document(
 
 @router.get("/{num_ref}/preview")
 def preview_document(
-    num_ref: str, 
+    num_ref: str,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     user_im = get_user_im(current_user)
+
     doc = crud_document.get_document_by_ref(db, num_ref)
-    if not doc or not os.path.exists(doc.file_path):
-        raise HTTPException(status_code=404, detail="Document introuvable sur le serveur.")
 
-    crud_document.log_document_action(db=db, num_ref=num_ref, im_user=user_im, action_desc="Consultation/Aperçu")
+    if not doc:
+        raise HTTPException(
+            status_code=404,
+            detail="Document introuvable."
+        )
 
-    return FileResponse(path=doc.file_path, headers={"Content-Disposition": "inline"})
+    if not doc.file_data:
+        raise HTTPException(
+            status_code=404,
+            detail="Le fichier PDF n'est pas disponible."
+        )
+
+    crud_document.log_document_action(
+        db=db,
+        num_ref=num_ref,
+        im_user=user_im,
+        action_desc="Consultation/Aperçu"
+    )
+
+    return Response(
+        content=doc.file_data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": "inline"
+        }
+    )
 
 @router.get("/{num_ref}/download")
 def download_document(
-    num_ref: str, 
+    num_ref: str,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
     user_im = get_user_im(current_user)
+
     doc = crud_document.get_document_by_ref(db, num_ref)
-    if not doc or not os.path.exists(doc.file_path):
-        raise HTTPException(status_code=404, detail="Document introuvable sur le serveur.")
 
-    crud_document.log_document_action(db=db, num_ref=num_ref, im_user=user_im, action_desc="Téléchargement")
+    if not doc:
+        raise HTTPException(
+            status_code=404,
+            detail="Document introuvable."
+        )
 
-    filename = os.path.basename(doc.file_path)
-    return FileResponse(path=doc.file_path, filename=filename, headers={"Content-Disposition": f"attachment; filename={filename}"})
+    if not doc.file_data:
+        raise HTTPException(
+            status_code=404,
+            detail="Le fichier n'est pas disponible."
+        )
 
+    crud_document.log_document_action(
+        db=db,
+        num_ref=num_ref,
+        im_user=user_im,
+        action_desc="Téléchargement"
+    )
+
+    extension = doc.format or "pdf"
+
+    filename = f"{doc.num_ref}.{extension}"
+
+    return Response(
+        content=doc.file_data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
 @router.delete("/{num_ref}", status_code=status.HTTP_200_OK)
 def delete_document(
     num_ref: str, 

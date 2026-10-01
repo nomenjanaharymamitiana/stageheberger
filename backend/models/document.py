@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Date, DateTime, ForeignKey
+from sqlalchemy import Column, String, Date, DateTime, ForeignKey,LargeBinary
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -19,7 +19,8 @@ class Document(Base):
 
     # Clé étrangère pointant directement sur la table utilisateur
     im_dag_rh = Column(String(50), ForeignKey("utilisateur.im"), nullable=True)
-    
+     # Nouveau : fichier stocké directement dans PostgreSQL
+    file_data = Column(LargeBinary, nullable=True)
     # Relations
     dag_rh_rel = relationship("Utilisateur", back_populates="documents")
     journals = relationship("Journal", back_populates="document")
