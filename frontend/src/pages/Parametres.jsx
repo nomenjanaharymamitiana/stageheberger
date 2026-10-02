@@ -608,21 +608,7 @@ export default function Parametres({
                 Email
               </label>
 
-              <input
-                type="email"
-                name="email"
-                value={formData.email}
-                onChange={handleChange}
-                style={{
-                  width: "100%",
-                  padding: "10px",
-                  borderRadius: "8px",
-                  border: `1px solid ${theme.border}`,
-                  backgroundColor: theme.inputBg,
-                  color: theme.textPrimary,
-                  boxSizing: "border-box"
-                }}
-              />
+              
             </div>
 
             {/* Bouton */}
