@@ -1,38 +1,49 @@
-from pydantic import BaseModel, EmailStr
 from typing import Optional
+from pydantic import BaseModel, ConfigDict
 
-# Schéma pour la création d'un agent (DAG / RH / RSI)
+
+# ============================================================
+# CRÉATION
+# ============================================================
+
 class UtilisateurCreate(BaseModel):
     im: str
     nom: str
     prenom: str
-    email: EmailStr
     password: str
-    role: str  # ex: "DAG", "RH", "RSI"
+    role: str
 
 
-# Schéma pour mettre à jour les informations d'un utilisateur
+# ============================================================
+# MODIFICATION
+# ============================================================
+
 class UtilisateurUpdate(BaseModel):
     nom: Optional[str] = None
     prenom: Optional[str] = None
-    email: Optional[EmailStr] = None
-    role: Optional[str] = None  # Permet de réattribuer le service DAG/RH si nécessaire
+    role: Optional[str] = None
+    password: Optional[str] = None
 
 
-# Schéma pour le changement de mot de passe
-class PasswordChange(BaseModel):
-    old_password: str
-    new_password: str
+# ============================================================
+# RÉPONSE
+# ============================================================
 
-
-# Schéma de sortie pour retourner les données de l'utilisateur
 class UtilisateurOut(BaseModel):
     im: str
     nom: str
     prenom: str
-    email: Optional[EmailStr] = None
-    role: Optional[str] = None
-    type_user: Optional[str] = None  # Rétrocompatibilité si votre BDD utilise type_user
+    role: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(
+        from_attributes=True
+    )
+
+
+# ============================================================
+# CHANGEMENT MOT DE PASSE
+# ============================================================
+
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str
