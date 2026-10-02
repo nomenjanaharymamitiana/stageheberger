@@ -4,7 +4,7 @@ import bcrypt
 
 from sqlalchemy.orm import Session
 
-from models.utilisateur import Utilisateur
+from models.utilisateur import Utilisateur, DAG, RH, RSI, DAGRH
 from models.demande import DemandeChangementMdp
 from schemas.utilisateur import (
     PasswordChange,
@@ -12,6 +12,14 @@ from schemas.utilisateur import (
     UtilisateurUpdate,
 )
 from schemas import utilisateur as schemas_user
+
+# Dictionnaire de correspondance entre le rôle (chaine) et la sous-classe SQLAlchemy
+ROLE_MAP = {
+    "dag": DAG,
+    "rh": RH,
+    "rsi": RSI,
+    "dag_rh": DAGRH,
+}
 
 
 # ============================================================
@@ -69,7 +77,8 @@ def get_utilisateurs_by_role(
     query = db.query(Utilisateur)
 
     if role:
-        query = query.filter(Utilisateur.role == role)
+        # Filtrer sur la colonne 'type_user' du modèle
+        query = query.filter(Utilisateur.type_user == role)
 
     return query.all()
 
@@ -107,9 +116,7 @@ def request_password_change_for_rsi(
     if existing:
         return {"error": "pending_request"}
 
-    id_genere = (
-        f"DMD-{uuid.uuid4().hex[:8].upper()}"
-    )
+    id_genere = f"DMD-{uuid.uuid4().hex[:8].upper()}"
 
     pending_req = DemandeChangementMdp(
         id_dmd=id_genere,
@@ -146,20 +153,26 @@ def create_utilisateur(
 
     if existing_user:
         raise ValueError(
-            f"L'utilisateur avec le matricule "
-            f"'{user_data.im}' existe déjà."
+            f"L'utilisateur avec le matricule '{user_data.im}' existe déjà."
         )
 
+    # Récupération du rôle transmis (role ou type_user selon le schéma Pydantic)
+    requested_role = getattr(user_data, "role", getattr(user_data, "type_user", None))
+    
+    # Résolution de la sous-classe polymorphe appropriée
+    role_key = str(requested_role).lower() if requested_role else ""
+    ModelClass = ROLE_MAP.get(role_key, Utilisateur)
+
     hashed_pwd = hash_password(
-        user_data.password
+        user_data.password if hasattr(user_data, "password") else getattr(user_data, "mdp", "")
     )
 
-    db_user = Utilisateur(
+    # Instanciation dynamique avec la bonne classe polymorphe
+    db_user = ModelClass(
         im=user_data.im,
         nom=user_data.nom,
         prenom=user_data.prenom,
         mdp=hashed_pwd,
-        role=user_data.role,
     )
 
     db.add(db_user)
@@ -170,8 +183,6 @@ def create_utilisateur(
         db.rollback()
         raise
 
-    # On recharge proprement l'utilisateur depuis la classe
-    # parent au lieu de db.refresh() sur une instance polymorphe.
     return get_utilisateur_by_im(
         db,
         user_data.im
@@ -204,9 +215,10 @@ def update_utilisateur_info(
     if data.prenom is not None:
         db_user.prenom = data.prenom
 
-    # Rôle
-    if hasattr(data, "role") and data.role is not None:
-        db_user.role = data.role
+    # Mise à jour de type_user si transmis
+    new_role = getattr(data, "role", getattr(data, "type_user", None))
+    if new_role is not None:
+        db_user.type_user = new_role
 
     try:
         db.commit()
@@ -214,10 +226,6 @@ def update_utilisateur_info(
         db.rollback()
         raise
 
-    # IMPORTANT :
-    # Ne pas faire db.refresh(db_user)
-    # car ton modèle utilise des classes polymorphes
-    # (DAG / RH / RSI).
     return get_utilisateur_by_im(
         db,
         im
