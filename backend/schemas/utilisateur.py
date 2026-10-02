@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ============================================================
@@ -26,22 +26,29 @@ class UtilisateurUpdate(BaseModel):
 
 
 # ============================================================
-# RÉPONSE
+# RÉPONSE API
 # ============================================================
 
 class UtilisateurOut(BaseModel):
     im: str
     nom: str
     prenom: str
-    role: str
+
+    # Le modèle SQLAlchemy possède "type_user"
+    # mais l'API renvoie "role"
+    role: str = Field(
+        validation_alias="type_user",
+        serialization_alias="role"
+    )
 
     model_config = ConfigDict(
-        from_attributes=True
+        from_attributes=True,
+        populate_by_name=True
     )
 
 
 # ============================================================
-# CHANGEMENT MOT DE PASSE
+# CHANGEMENT DE MOT DE PASSE
 # ============================================================
 
 class PasswordChange(BaseModel):
