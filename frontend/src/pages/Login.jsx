@@ -656,7 +656,7 @@ export default function Login({ onLoginSuccess }) {
                       onChange={(e) =>
                         setIm(e.target.value)
                       }
-                      placeholder="Ex. DAG001"
+                      placeholder=""
                       autoComplete="username"
                       required
                       style={styles.input}
