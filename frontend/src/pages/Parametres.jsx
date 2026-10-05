@@ -596,20 +596,7 @@ export default function Parametres({
             </div>
 
             {/* Email */}
-            <div>
-              <label
-                style={{
-                  display: "block",
-                  fontSize: "12px",
-                  color: theme.textSecondary,
-                  marginBottom: "6px"
-                }}
-              >
-                Email
-              </label>
-
-              
-            </div>
+     
 
             {/* Bouton */}
             <button
