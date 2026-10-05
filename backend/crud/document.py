@@ -148,7 +148,26 @@ def create_document(
 
     return new_doc
 
+# =========================================================
+# CORBEILLE D'UN UTILISATEUR
+# =========================================================
 
+def get_trash_documents_by_user(
+    db: Session,
+    im_user: str
+) -> List[models.Document]:
+
+    return (
+        db.query(models.Document)
+        .filter(
+            models.Document.im_dag_rh == im_user,
+            models.Document.date_suppression.is_not(None)
+        )
+        .order_by(
+            models.Document.date_suppression.desc()
+        )
+        .all()
+    )
 # =========================================================
 # JOURNAL
 # =========================================================

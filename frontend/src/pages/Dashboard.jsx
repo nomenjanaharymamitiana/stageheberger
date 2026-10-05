@@ -867,7 +867,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                           </tr>
                         ))}
                       </tbody>
-                    </table>Anne
+                    </table>
                   </div>
                 )}
               </div>

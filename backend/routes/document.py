@@ -135,6 +135,13 @@ def search_documents(
 # CORBEILLE
 # =========================================================
 
+# =========================================================
+# CORBEILLE
+#
+# RSI  -> voit tous les documents supprimés
+# autres utilisateurs -> voient uniquement leurs documents
+# =========================================================
+
 @router.get(
     "/trash",
     response_model=List[schemas.DocumentOut]
@@ -144,9 +151,33 @@ def list_trash_documents(
     current_user=Depends(get_current_user)
 ):
 
-    return crud_document.get_trash_documents(db=db)
+    user_im = get_user_im(current_user)
 
+    # Récupérer le rôle/type de l'utilisateur
+    user_role = (
+        getattr(current_user, "type_user", None)
+        or getattr(current_user, "role", None)
+        or ""
+    )
 
+    user_role = str(user_role).upper()
+
+    # -----------------------------------------------------
+    # RSI : accès à toute la corbeille
+    # -----------------------------------------------------
+    if user_role == "RSI":
+        return crud_document.get_trash_documents(
+            db=db
+        )
+
+    # -----------------------------------------------------
+    # Autres utilisateurs :
+    # uniquement leurs documents supprimés
+    # -----------------------------------------------------
+    return crud_document.get_trash_documents_by_user(
+        db=db,
+        im_user=user_im
+    )
 # =========================================================
 # RESTAURER
 # =========================================================
