@@ -784,12 +784,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                                 <button onClick={() => handleOpenPreview(doc)} style={{ backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: theme.textPrimary }} title="Aperçu">
                                   <i className="bi bi-eye"></i>
                                 </button>
-                                <button onClick={() => setDocToEdit(doc)} style={{ backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: theme.textPrimary }} title="Modifier">
-                                  <i className="bi bi-pencil"></i>
-                                </button>
-                                <button onClick={() => setDocToDelete(doc)} style={{ backgroundColor: darkMode ? "rgba(239, 68, 68, 0.2)" : "#fef2f2", border: "1px solid #fca5a5", borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: "#ef4444" }} title="Supprimer">
-                                  <i className="bi bi-trash"></i>
-                                </button>
+                           
                               </div>
                             </td>
                           </tr>
