@@ -753,7 +753,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                           <th style={{ padding: "12px 14px" }}>Référence</th>
                           <th style={{ padding: "12px 14px" }}>Titre du document</th>
                           <th style={{ padding: "12px 14px" }}>Catégorie</th>
-                          <th style={{ padding: "12px 14px" }}>Format</th>
+                          <th style={{ padding: "12px 14px" }}>Année</th>
                           <th style={{ padding: "12px 14px", textAlign: "right" }}>Actions</th>
                         </tr>
                       </thead>
@@ -768,7 +768,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                               </span>
                             </td>
                             <td style={{ padding: "12px 14px", textTransform: "uppercase", fontWeight: "600", color: theme.textSecondary }}>
-                              {doc.format || "PDF"}
+                              {doc.annee_redac || "PDF"}
                             </td>
                             <td style={{ padding: "12px 14px", textAlign: "right" }}>
                               <div style={{ display: "inline-flex", gap: "6px" }}>
@@ -867,7 +867,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+                    </table>Anne
                   </div>
                 )}
               </div>
