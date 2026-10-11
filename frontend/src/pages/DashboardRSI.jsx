@@ -5,10 +5,12 @@ import Parametres from "./Parametres";
 import translations from "../locales/translations.json";
 
 // Endpoints FastAPI
-const API_DOCUMENTS = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/v1/documents`;
-const API_JOURNAL = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/v1/journal`;
-const API_USERS = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/v1/users`;
-const API_PASSWORD_REQUESTS = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/v1/demandes-mdp`;
+const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+const API_DOCUMENTS = `${API_BASE}/api/v1/documents`;
+const API_JOURNAL = `${API_BASE}/api/v1/journal`;
+const API_USERS = `${API_BASE}/api/v1/users`;
+const API_PASSWORD_REQUESTS = `${API_BASE}/api/v1/demandes-mdp`;
+const API_ASSISTANT = `${API_BASE}/api/v1/assistant`;
 
 const CATEGORIES = [
   { id: "Nomination", icon: "bi-person-badge-fill", color: "#6366f1", bg: "#e0e7ff", darkBg: "rgba(99, 102, 241, 0.2)" },
@@ -18,7 +20,7 @@ const CATEGORIES = [
 
 export default function DashboardRSI({ user: initialUser, onLogout }) {
   const [user, setUser] = useState(initialUser);
-  const [lang, setLang] = useState("fr");
+  const [lang] = useState("fr");
   const t = translations[lang] || translations["fr"] || {};
 
   // Mode sombre (Dark Mode)
@@ -34,6 +36,14 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
   // State Notifications Topbar
   const [notifications, setNotifications] = useState([]);
   const [showNotificationsMenu, setShowNotificationsMenu] = useState(false);
+
+  // State Assistant IA Panneau Latéral (Drawer Droit)
+  const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
+  const [aiMessages, setAiMessages] = useState([
+    { sender: "bot", text: "Bonjour ! Je suis votre assistant IA GED. Comment puis-je vous aider dans la gestion de vos documents ?" }
+  ]);
+  const [aiInputText, setAiInputText] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
 
   // State Demandes de Réinitialisation de Mot de Passe
   const [passwordRequests, setPasswordRequests] = useState([]);
@@ -125,6 +135,79 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
       }));
 
     setNotifications(passNotifs);
+  };
+
+  // ---------------- API ASSISTANT IA ----------------
+  const handleSendAiMessage = async (e) => {
+    e.preventDefault();
+
+    if (!aiInputText.trim() || aiLoading) return;
+
+    const userQuery = aiInputText.trim();
+
+    // Ajouter le message de l'utilisateur à l'interface
+    setAiMessages((prev) => [
+      ...prev,
+      { sender: "user", text: userQuery }
+    ]);
+
+    setAiInputText("");
+    setAiLoading(true);
+
+    try {
+      // Appel du véritable endpoint FastAPI
+      const response = await fetch(`${API_ASSISTANT}/chat`, {
+        method: "POST",
+        headers: {
+          ...getAuthHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          question: userQuery,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        // Afficher l'erreur exacte retournée par FastAPI
+        const detail =
+          typeof data.detail === "string"
+            ? data.detail
+            : `Erreur HTTP ${response.status}`;
+
+        setAiMessages((prev) => [
+          ...prev,
+          {
+            sender: "bot",
+            text: `Erreur ${response.status} : ${detail}`,
+          },
+        ]);
+
+        return;
+      }
+
+      // Afficher la réponse de Gemini
+      setAiMessages((prev) => [
+        ...prev,
+        {
+          sender: "bot",
+          text: data.answer || "L'assistant n'a retourné aucune réponse.",
+        },
+      ]);
+    } catch (error) {
+      console.error("Erreur API IA :", error);
+
+      setAiMessages((prev) => [
+        ...prev,
+        {
+          sender: "bot",
+          text: "Impossible de contacter le serveur. Vérifiez que FastAPI est démarré.",
+        },
+      ]);
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   // ---------------- API DEMANDES MOT DE PASSE ----------------
@@ -456,7 +539,6 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
     fetchDocuments(null);
     fetchPasswordRequests();
 
-    // Vérification automatique des nouvelles demandes toutes les 10 secondes
     const passwordRequestInterval = setInterval(() => {
       fetchPasswordRequests();
     }, 10000);
@@ -597,7 +679,7 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
   const unreadNotifCount = notifications.filter(n => !n.read).length;
 
   return (
-    <div className="layout-container" style={{ backgroundColor: theme.bg, color: theme.textPrimary, fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif", display: "flex", minHeight: "100vh", transition: "background-color 0.3s, color 0.3s" }}>
+    <div className="layout-container" style={{ backgroundColor: theme.bg, color: theme.textPrimary, fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif", display: "flex", minHeight: "100vh", transition: "background-color 0.3s, color 0.3s", position: "relative", overflowX: "hidden" }}>
       
       {/* SIDEBAR */}
       <aside className="sidebar" style={{ backgroundColor: theme.sidebarBg, borderRight: `1px solid ${theme.border}`, width: "260px", display: "flex", flexDirection: "column", justifyContent: "space-between", transition: "all 0.3s" }}>
@@ -828,11 +910,11 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
       {/* CONTENU PRINCIPAL */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
         
-        {/* TOPBAR */}
+        {/* TOPBAR EN HAUT AVEC LE BOUTON ASSISTANT IA */}
         <header style={{ backgroundColor: theme.sidebarBg, padding: "14px 28px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "flex-end", alignItems: "center", transition: "all 0.3s" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
             
-            {/* BOUTON DE NOTIFICATION AVEC CLOCHETTE EN HAUT */}
+            {/* BOUTON NOTIFICATION */}
             <div style={{ position: "relative" }}>
               <button
                 onClick={() => setShowNotificationsMenu(!showNotificationsMenu)}
@@ -874,7 +956,7 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
                 )}
               </button>
 
-              {/* MENU DÉROULANT DES NOTIFICATIONS DE LA BARRE SUPÉRIEURE */}
+              {/* MENU NOTIFICATIONS */}
               {showNotificationsMenu && (
                 <div style={{
                   position: "absolute",
@@ -951,28 +1033,30 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
               )}
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", backgroundColor: theme.bg, borderRadius: "20px", padding: "3px", border: `1px solid ${theme.border}` }}>
-              {["fr", "mg"].map((l) => (
-                <button
-                  key={l}
-                  onClick={() => setLang(l)}
-                  style={{
-                    background: lang === l ? theme.sidebarBg : "transparent",
-                    color: lang === l ? theme.textPrimary : theme.textSecondary,
-                    border: "none",
-                    borderRadius: "16px",
-                    padding: "4px 10px",
-                    cursor: "pointer",
-                    fontWeight: "700",
-                    fontSize: "12px",
-                    boxShadow: lang === l ? "0 1px 3px rgba(0,0,0,0.1)" : "none"
-                  }}
-                >
-                  {l === "fr" ? "FR" : "MG"}
-                </button>
-              ))}
-            </div>
+            {/* BOUTON ASSISTANT IA */}
+            <button
+              onClick={() => setIsAiDrawerOpen(!isAiDrawerOpen)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                backgroundColor: isAiDrawerOpen ? "#3b82f6" : theme.bg,
+                color: isAiDrawerOpen ? "#ffffff" : theme.textPrimary,
+                border: `1px solid ${isAiDrawerOpen ? "#3b82f6" : theme.border}`,
+                borderRadius: "20px",
+                padding: "6px 14px",
+                fontSize: "13px",
+                fontWeight: "600",
+                cursor: "pointer",
+                transition: "all 0.2s"
+              }}
+              title="Ouvrir l'Assistant IA"
+            >
+              <i className="bi bi-robot" style={{ fontSize: "16px", color: isAiDrawerOpen ? "#ffffff" : "#3b82f6" }}></i>
+              <span>Assistant IA</span>
+            </button>
 
+            {/* BOUTON MODE SOMBRE */}
             <button
               onClick={() => setDarkMode(!darkMode)}
               style={{
@@ -1033,7 +1117,7 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
                 </div>
                 <div style={{ backgroundColor: theme.cardBg, padding: "8px 14px", borderRadius: "8px", border: `1px solid ${theme.border}`, fontSize: "13px", color: theme.textSecondary, display: "flex", alignItems: "center", gap: "8px" }}>
                   <i className="bi bi-calendar3"></i> 
-                  {new Date().toLocaleDateString(lang === "mg" ? "mg-MG" : "fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                  {new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
                 </div>
               </div>
 
@@ -1573,6 +1657,106 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
 
         </main>
       </div>
+
+      {/* PANNEAU LATÉRAL ASSISTANT IA (DRAWER À DROITE) */}
+      {isAiDrawerOpen && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: "380px",
+          maxWidth: "100vw",
+          backgroundColor: theme.cardBg,
+          borderLeft: `1px solid ${theme.border}`,
+          boxShadow: "-10px 0 25px rgba(0, 0, 0, 0.2)",
+          zIndex: 1000,
+          display: "flex",
+          flexDirection: "column",
+          transition: "transform 0.3s ease-in-out"
+        }}>
+          {/* EN-TÊTE DU PANNEAU IA */}
+          <div style={{ padding: "16px 20px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <i className="bi bi-robot" style={{ fontSize: "20px", color: "#3b82f6" }}></i>
+              <div>
+                <h3 style={{ margin: 0, fontSize: "16px", color: theme.textPrimary }}>Assistant IA GED</h3>
+                <span style={{ fontSize: "11px", color: theme.textSecondary }}>En ligne • Prêt à vous aider</span>
+              </div>
+            </div>
+            <button
+              onClick={() => setIsAiDrawerOpen(false)}
+              style={{ background: "none", border: "none", fontSize: "20px", cursor: "pointer", color: theme.textSecondary }}
+            >
+              <i className="bi bi-x-lg"></i>
+            </button>
+          </div>
+
+          {/* CORPS DES MESSAGES */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
+            {aiMessages.map((msg, idx) => (
+              <div
+                key={idx}
+                style={{
+                  alignSelf: msg.sender === "user" ? "flex-end" : "flex-start",
+                  backgroundColor: msg.sender === "user" ? "#3b82f6" : theme.hoverBg,
+                  color: msg.sender === "user" ? "#ffffff" : theme.textPrimary,
+                  padding: "10px 14px",
+                  borderRadius: "12px",
+                  maxWidth: "80%",
+                  fontSize: "13px",
+                  lineHeight: "1.4",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+                }}
+              >
+                {msg.text}
+              </div>
+            ))}
+            {aiLoading && (
+              <div style={{ alignSelf: "flex-start", color: theme.textSecondary, fontSize: "12px", fontStyle: "italic" }}>
+                L'assistant réfléchit...
+              </div>
+            )}
+          </div>
+
+          {/* SAISIE DU MESSAGE */}
+          <form onSubmit={handleSendAiMessage} style={{ padding: "14px 16px", borderTop: `1px solid ${theme.border}`, display: "flex", gap: "8px" }}>
+            <input
+              type="text"
+              placeholder="Posez une question..."
+              value={aiInputText}
+              onChange={(e) => setAiInputText(e.target.value)}
+              style={{
+                flex: 1,
+                padding: "9px 12px",
+                borderRadius: "8px",
+                border: `1px solid ${theme.border}`,
+                backgroundColor: theme.inputBg,
+                color: theme.textPrimary,
+                fontSize: "13px",
+                outline: "none"
+              }}
+            />
+            <button
+              type="submit"
+              disabled={aiLoading}
+              style={{
+                backgroundColor: "#3b82f6",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "8px",
+                padding: "9px 14px",
+                fontSize: "13px",
+                fontWeight: "600",
+                cursor: aiLoading ? "not-allowed" : "pointer",
+                opacity: aiLoading ? 0.7 : 1
+              }}
+            >
+              <i className="bi bi-send-fill"></i>
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* MODALE CRÉATION / ÉDITION UTILISATEUR */}
       {showUserModal && (

@@ -1,8 +1,10 @@
 from pydantic import BaseModel
 
+
 class LoginRequest(BaseModel):
     im: str
     mdp: str
+
 
 class UserOut(BaseModel):
     im: str
@@ -12,3 +14,9 @@ class UserOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    user: UserOut

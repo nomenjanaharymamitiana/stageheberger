@@ -8,15 +8,15 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def get_user_by_im(db: Session, im: str):
     return db.query(models.Utilisateur).filter(models.Utilisateur.im == im).first()
-
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    # Si tes mots de passe sont hachés :
+    """
+    Vérifie le mot de passe fourni par l'utilisateur
+    par rapport au hash bcrypt enregistré en base.
+    """
     try:
         return pwd_context.verify(plain_password, hashed_password)
-    except Exception:
-        # En fallback si le mot de passe en BDD est en clair (durant la phase de dev)
-        return plain_password == hashed_password
-
+    except (ValueError, TypeError):
+        return False
 def authenticate_user(db: Session, credentials: schemas.LoginRequest):
     user = get_user_by_im(db, credentials.im)
     if not user:
