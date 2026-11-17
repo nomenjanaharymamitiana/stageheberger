@@ -14,3 +14,4 @@ email-validator
 google-genai
 pypdf
 pytesseract
+pdf2image
