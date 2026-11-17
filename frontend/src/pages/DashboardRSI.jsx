@@ -3,9 +3,11 @@ import logoGed from "../assets/WhatsApp Image 2026-09-21 at 11.01.52.jpeg";
 import "../styles/theme.css";
 import Parametres from "./Parametres";
 import translations from "../locales/translations.json";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 // Endpoints FastAPI
-const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+const API_BASE = (import.meta.env.VITE_API_URL || "http://127.0.0.1:8000").replace(/\/$/, "");
 const API_DOCUMENTS = `${API_BASE}/api/v1/documents`;
 const API_JOURNAL = `${API_BASE}/api/v1/journal`;
 const API_USERS = `${API_BASE}/api/v1/users`;
@@ -145,7 +147,6 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
 
     const userQuery = aiInputText.trim();
 
-    // Ajouter le message de l'utilisateur à l'interface
     setAiMessages((prev) => [
       ...prev,
       { sender: "user", text: userQuery }
@@ -155,7 +156,6 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
     setAiLoading(true);
 
     try {
-      // Appel du véritable endpoint FastAPI
       const response = await fetch(`${API_ASSISTANT}/chat`, {
         method: "POST",
         headers: {
@@ -170,7 +170,6 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
       const data = await response.json();
 
       if (!response.ok) {
-        // Afficher l'erreur exacte retournée par FastAPI
         const detail =
           typeof data.detail === "string"
             ? data.detail
@@ -187,7 +186,6 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
         return;
       }
 
-      // Afficher la réponse de Gemini
       setAiMessages((prev) => [
         ...prev,
         {
@@ -1692,7 +1690,7 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
             </button>
           </div>
 
-          {/* CORPS DES MESSAGES */}
+          {/* CORPS DES MESSAGES AVEC RENDU MARKDOWN */}
           <div style={{ flex: 1, overflowY: "auto", padding: "16px", display: "flex", flexDirection: "column", gap: "12px" }}>
             {aiMessages.map((msg, idx) => (
               <div
@@ -1701,15 +1699,32 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
                   alignSelf: msg.sender === "user" ? "flex-end" : "flex-start",
                   backgroundColor: msg.sender === "user" ? "#3b82f6" : theme.hoverBg,
                   color: msg.sender === "user" ? "#ffffff" : theme.textPrimary,
-                  padding: "10px 14px",
-                  borderRadius: "12px",
-                  maxWidth: "80%",
+                  padding: "12px 16px",
+                  borderRadius: "14px",
+                  maxWidth: msg.sender === "user" ? "80%" : "92%",
+                  width: "fit-content",
                   fontSize: "13px",
-                  lineHeight: "1.4",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+                  lineHeight: "1.7",
+                  overflowWrap: "anywhere",
+                  boxShadow: "0 2px 5px rgba(0,0,0,0.05)"
                 }}
               >
-                {msg.text}
+                {msg.sender === "user" ? (
+                  <div style={{ whiteSpace: "pre-wrap" }}>
+                    {msg.text}
+                  </div>
+                ) : (
+                  <div
+                    className="assistant-markdown"
+                    style={{
+                      color: theme.textPrimary
+                    }}
+                  >
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {msg.text || ""}
+                    </ReactMarkdown>
+                  </div>
+                )}
               </div>
             ))}
             {aiLoading && (
@@ -1857,18 +1872,22 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
         </div>
       )}
 
-      {/* MODALE PRÉVISUALISATION DU DOCUMENT */}
+      {/* MODALE PRÉVISUALISATION DU DOCUMENT + INTÉGRATION ANALYSE PDF IA */}
       {previewDoc && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "20px" }}>
-          <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", width: "900px", maxWidth: "95vw", height: "85vh", display: "flex", flexDirection: "column", overflow: "hidden", border: `1px solid ${theme.border}` }}>
+          <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", width: "1000px", maxWidth: "95vw", height: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", border: `1px solid ${theme.border}` }}>
             <div style={{ padding: "16px 20px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: "16px", color: theme.textPrimary }}>{previewDoc.title}</h3>
                 <span style={{ fontSize: "12px", color: theme.textSecondary }}>Réf: {previewDoc.num_ref}</span>
               </div>
-              <button onClick={handleClosePreview} style={{ background: "none", border: "none", fontSize: "20px", cursor: "pointer", color: theme.textSecondary }}>
-                <i className="bi bi-x-lg"></i>
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                {/* Composant Analyse PDF IA intégré dynamiquement */}
+                <AnalysePdfIA numRef={previewDoc.num_ref} authHeaders={getAuthHeaders()} />
+                <button onClick={handleClosePreview} style={{ background: "none", border: "none", fontSize: "20px", cursor: "pointer", color: theme.textSecondary }}>
+                  <i className="bi bi-x-lg"></i>
+                </button>
+              </div>
             </div>
             <div style={{ flex: 1, backgroundColor: "#525659", display: "flex", alignItems: "center", justifyContent: "center" }}>
               {previewLoading ? (
@@ -1884,5 +1903,189 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
       )}
 
     </div>
+  );
+}
+
+// ---------------- SOUS-COMPOSANT : ANALYSE PDF IA ----------------
+function AnalysePdfIA({ numRef, authHeaders = {} }) {
+  const [analyse, setAnalyse] = useState("");
+  const [titre, setTitre] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [erreur, setErreur] = useState("");
+  const [ouvert, setOuvert] = useState(false);
+
+  const lancerAnalyse = async () => {
+    if (!numRef || loading) {
+      if (!numRef) {
+        setErreur("La référence du document est manquante.");
+        setOuvert(true);
+      }
+      return;
+    }
+
+    setOuvert(true);
+    setLoading(true);
+    setErreur("");
+    setAnalyse("");
+    setTitre("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/v1/assistant/analyser-pdf/${encodeURIComponent(numRef)}`,
+        {
+          method: "POST",
+          headers: authHeaders,
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const detail =
+          typeof data.detail === "string"
+            ? data.detail
+            : `Erreur HTTP ${response.status}`;
+
+        throw new Error(detail);
+      }
+
+      setTitre(data.titre || numRef);
+      setAnalyse(data.analyse || "Aucune analyse n'a été retournée.");
+    } catch (error) {
+      console.error("Erreur d'analyse PDF :", error);
+
+      setErreur(
+        error.message ||
+          "Impossible de contacter le serveur d'analyse."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <section className="analyse-pdf-container" style={{ display: "inline-block" }}>
+      <button
+        type="button"
+        className="analyse-pdf-button"
+        onClick={lancerAnalyse}
+        disabled={loading}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          backgroundColor: "#6366f1",
+          color: "#ffffff",
+          border: "none",
+          borderRadius: "6px",
+          padding: "6px 12px",
+          fontSize: "12px",
+          fontWeight: "600",
+          cursor: loading ? "not-allowed" : "pointer"
+        }}
+      >
+        {loading ? (
+          <>
+            <span className="analyse-pdf-spinner" />
+            Analyse...
+          </>
+        ) : (
+          <>
+            <i className="bi bi-stars" />
+            Analyser avec l'IA
+          </>
+        )}
+      </button>
+
+      {ouvert && (
+        <div className="analyse-pdf-panel" style={{
+          position: "fixed",
+          top: "60px",
+          right: "20px",
+          width: "420px",
+          maxWidth: "90vw",
+          maxHeight: "80vh",
+          backgroundColor: "#ffffff",
+          color: "#0f172a",
+          borderRadius: "10px",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
+          zIndex: 1100,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          border: "1px solid #e2e8f0"
+        }}>
+          <div className="analyse-pdf-header" style={{ padding: "12px 16px", borderBottom: "1px solid #e2e8f0", display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "#f8fafc" }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: "14px", display: "flex", alignItems: "center", gap: "6px" }}>
+                <i className="bi bi-robot" style={{ color: "#6366f1" }} /> Analyse intelligente
+              </h3>
+              <p style={{ margin: "2px 0 0 0", fontSize: "11px", color: "#64748b" }}>
+                Document : {titre || numRef}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="analyse-pdf-close"
+              onClick={() => setOuvert(false)}
+              aria-label="Fermer l'analyse"
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: "16px", color: "#64748b" }}
+            >
+              <i className="bi bi-x-lg" />
+            </button>
+          </div>
+
+          <div className="analyse-pdf-content" style={{ padding: "16px", overflowY: "auto", flex: 1, fontSize: "13px", lineHeight: "1.6" }}>
+            {loading && (
+              <div className="analyse-pdf-loading" style={{ textAlign: "center", padding: "20px", color: "#64748b" }}>
+                <span className="analyse-pdf-spinner" />
+                <p>Gemini analyse le contenu du document. Veuillez patienter...</p>
+              </div>
+            )}
+
+            {erreur && (
+              <div className="analyse-pdf-error" style={{ display: "flex", gap: "10px", backgroundColor: "rgba(239, 68, 68, 0.1)", padding: "10px", borderRadius: "6px", color: "#ef4444" }}>
+                <i className="bi bi-exclamation-triangle-fill" />
+                <div>
+                  <strong>Échec de l'analyse</strong>
+                  <p style={{ margin: 0, fontSize: "12px" }}>{erreur}</p>
+                </div>
+              </div>
+            )}
+
+            {!loading && !erreur && analyse && (
+              <article className="assistant-markdown analyse-pdf-markdown">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {analyse}
+                </ReactMarkdown>
+              </article>
+            )}
+          </div>
+
+          {!loading && !erreur && analyse && (
+            <div className="analyse-pdf-footer" style={{ padding: "10px 16px", borderTop: "1px solid #e2e8f0", display: "flex", justifyContent: "flex-end", gap: "8px", backgroundColor: "#f8fafc" }}>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="analyse-pdf-print"
+                style={{ backgroundColor: "#f1f5f9", border: "1px solid #e2e8f0", padding: "6px 12px", borderRadius: "6px", fontSize: "12px", cursor: "pointer" }}
+              >
+                <i className="bi bi-printer" /> Imprimer
+              </button>
+
+              <button
+                type="button"
+                onClick={lancerAnalyse}
+                className="analyse-pdf-retry"
+                style={{ backgroundColor: "#3b82f6", color: "#ffffff", border: "none", padding: "6px 12px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", fontWeight: "600" }}
+              >
+                <i className="bi bi-arrow-clockwise" /> Réanalyser
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
