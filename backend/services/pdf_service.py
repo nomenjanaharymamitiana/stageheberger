@@ -5,6 +5,7 @@ import subprocess
 
 import pytesseract
 from pdf2image import convert_from_bytes
+from PIL import Image
 from pypdf import PdfReader
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,9 @@ MAX_PAGES = 100
 MAX_PAGES_OCR = 20
 MAX_TEXTE = 20000
 MIN_TEXTE_PAGE = 40
+OCR_DPI = 150
+OCR_MAX_WIDTH = 1500
+OCR_TIMEOUT = 90
 
 # Détection des exécutables système
 TESSERACT_PATH = shutil.which("tesseract")
@@ -21,6 +25,19 @@ POPPLER_PATH = shutil.which("pdftoppm")
 
 if TESSERACT_PATH:
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
+
+
+def _preparer_image_ocr(image: Image.Image) -> Image.Image:
+    """Optimise l'image pour accélérer Tesseract et limiter la RAM."""
+    image_gris = image.convert("L")
+    if image_gris.width > OCR_MAX_WIDTH:
+        ratio = OCR_MAX_WIDTH / float(image_gris.width)
+        nouvelle_hauteur = int(image_gris.height * ratio)
+        image_gris = image_gris.resize(
+            (OCR_MAX_WIDTH, nouvelle_hauteur),
+            Image.Resampling.LANCZOS,
+        )
+    return image_gris
 
 
 def verifier_environnement_ocr():
@@ -50,8 +67,6 @@ def verifier_environnement_ocr():
 
         if "fra" not in langues:
             logger.warning("La langue française (fra) est absente.")
-        if "eng" not in langues:
-            logger.warning("La langue anglaise (eng) est absente.")
 
     except Exception:
         logger.exception("Erreur pendant le diagnostic Tesseract.")
@@ -137,16 +152,15 @@ def extraire_texte_pdf(pdf_bytes: bytes) -> str:
                 "Impossible de vérifier les langues de Tesseract."
             ) from erreur
 
-        langues_manquantes = {"fra", "eng"} - set(langues)
-        if langues_manquantes:
+        if "fra" not in langues:
             raise RuntimeError(
-                "Langues OCR manquantes : "
-                + ", ".join(sorted(langues_manquantes))
+                "Langue OCR manquante : fra"
             )
 
     # 7. OCR des pages scannées
     for numero in pages_a_ocr:
         images = []
+        image_preparee = None
 
         try:
             logger.info("OCR de la page %s.", numero)
@@ -154,10 +168,10 @@ def extraire_texte_pdf(pdf_bytes: bytes) -> str:
                 pdf_bytes,
                 first_page=numero,
                 last_page=numero,
-                dpi=200,
+                dpi=OCR_DPI,
                 fmt="png",
                 thread_count=1,
-                timeout=30,
+                timeout=OCR_TIMEOUT,
             )
 
             if not images:
@@ -167,11 +181,12 @@ def extraire_texte_pdf(pdf_bytes: bytes) -> str:
                 )
                 continue
 
+            image_preparee = _preparer_image_ocr(images[0])
             texte_ocr = pytesseract.image_to_string(
-                images[0],
-                lang="fra+eng",
-                config="--oem 1 --psm 3",
-                timeout=30,
+                image_preparee,
+                lang="fra",
+                config="--oem 1 --psm 6",
+                timeout=OCR_TIMEOUT,
             ).strip()
 
             if texte_ocr:
@@ -186,6 +201,8 @@ def extraire_texte_pdf(pdf_bytes: bytes) -> str:
             logger.exception("Échec OCR page %s.", numero)
 
         finally:
+            if image_preparee is not None and image_preparee is not images[0]:
+                image_preparee.close()
             for image in images:
                 image.close()
 
