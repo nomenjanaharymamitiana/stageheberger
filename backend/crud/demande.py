@@ -1,5 +1,6 @@
 import uuid
-
+from datetime import date
+from typing import Optional, List  # 👈 Importation de Optional et List ajoutée ici
 from sqlalchemy.orm import Session
 
 from models.demande import DemandeChangementMdp
@@ -8,6 +9,24 @@ from crud.utilisateur import (
     verify_password,
     hash_password
 )
+import models
+
+
+def create_log(
+    db: Session,
+    desc: str,
+    im_user: str,
+    num_ref_doc: Optional[str] = None
+):
+    """Enregistre une action dans le journal."""
+    log_entry = models.Journal(
+        id_jour=str(uuid.uuid4())[:8],
+        date_action=date.today(),
+        desc=desc,
+        num_ref_doc=num_ref_doc,
+        im_user=im_user
+    )
+    db.add(log_entry)
 
 
 def creer_demande_mdp(
@@ -50,6 +69,14 @@ def creer_demande_mdp(
     )
 
     db.add(nouvelle_demande)
+
+    # Enregistrement du log pour la création de la demande
+    create_log(
+        db,
+        f"Création de la demande de changement de mot de passe ({id_dmd})",
+        im_user
+    )
+
     db.commit()
     db.refresh(nouvelle_demande)
 
@@ -71,7 +98,8 @@ def get_pending_demandes(db: Session):
 
 def valider_demande_mdp(
     db: Session,
-    id_dmd: str
+    id_dmd: str,
+    im_admin: str = "SYSTEM"
 ):
     demande = (
         db.query(DemandeChangementMdp)
@@ -93,8 +121,14 @@ def valider_demande_mdp(
         return None
 
     user.mdp = demande.new_password_hash
-
     demande.statut = "validee"
+
+    # Enregistrement du log pour la validation de la demande
+    create_log(
+        db,
+        f"Validation de la demande de changement de mot de passe ({id_dmd}) pour l'utilisateur {demande.im_user}",
+        im_admin
+    )
 
     db.commit()
     db.refresh(demande)
@@ -104,7 +138,8 @@ def valider_demande_mdp(
 
 def rejeter_demande_mdp(
     db: Session,
-    id_dmd: str
+    id_dmd: str,
+    im_admin: str = "SYSTEM"
 ):
     demande = (
         db.query(DemandeChangementMdp)
@@ -119,10 +154,19 @@ def rejeter_demande_mdp(
 
     demande.statut = "rejetee"
 
+    # Enregistrement du log pour le rejet de la demande
+    create_log(
+        db,
+        f"Rejet de la demande de changement de mot de passe ({id_dmd}) pour l'utilisateur {demande.im_user}",
+        im_admin
+    )
+
     db.commit()
     db.refresh(demande)
 
     return demande
+
+
 def get_latest_demande_by_im(db: Session, im_user: str):
     return (
         db.query(DemandeChangementMdp)

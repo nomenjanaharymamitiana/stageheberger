@@ -1,6 +1,7 @@
 from typing import List, Optional
 from datetime import date
-
+from services.pdf_service import extraire_texte_pdf
+from services.metadata_service import extraire_metadonnees
 from fastapi import (
     APIRouter,
     Depends,
@@ -17,6 +18,7 @@ from .auth import get_current_user
 import schemas
 from crud import document as crud_document
 from database import get_db
+from models.document import Document
 
 
 router = APIRouter(
@@ -44,11 +46,68 @@ def get_user_im(current_user) -> str:
 
     return user_im
 
-
 # =========================================================
+# PRÉREMPLISSAGE AUTOMATIQUE DES MÉTADONNÉES D'UN PDF
+# =========================================================
+
+@router.post("/pre-remplir")
+async def pre_remplir_document(
+    file: UploadFile = File(...),
+    current_user=Depends(get_current_user)
+):
+    """
+    Reçoit un PDF, extrait son texte et renvoie les métadonnées
+    détectées pour préremplir le formulaire React.
+    """
+
+    get_user_im(current_user)
+
+    if file.content_type != "application/pdf":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Veuillez sélectionner un fichier PDF."
+        )
+
+    pdf_bytes = await file.read()
+
+    if not pdf_bytes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le fichier PDF est vide."
+        )
+
+    if not pdf_bytes.startswith(b"%PDF-"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le fichier envoyé n'est pas un PDF valide."
+        )
+
+    try:
+        texte = extraire_texte_pdf(pdf_bytes)
+
+        if not texte or not texte.strip():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Aucun texte n'a pu être extrait du PDF. "
+                    "Vérifiez que le document est lisible."
+                )
+            )
+
+        metadonnees = extraire_metadonnees(texte)
+        return metadonnees
+
+    except HTTPException:
+        raise
+
+    except Exception as exc:
+        print(f"Erreur de préremplissage PDF : {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Une erreur est survenue pendant l'analyse du PDF."
+        )
+
 # UPLOAD DOCUMENT
-# =========================================================
-
 @router.post(
     "/upload",
     response_model=schemas.DocumentOut,
@@ -77,6 +136,83 @@ async def upload_document(
         im_dag_rh=user_im,
         file=file
     )
+
+
+# =========================================================
+# BASCULER L'ÉTAT FAVORI / IMPORTANT
+# =========================================================
+
+@router.patch(
+    "/{num_ref}/favoris",
+    response_model=schemas.DocumentOut,
+    status_code=status.HTTP_200_OK
+)
+def toggle_document_important(
+    num_ref: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Inverse l'état 'est_important' (favori) d'un document.
+    """
+    get_user_im(current_user)
+
+    doc = db.query(Document).filter(Document.num_ref == num_ref).first()
+
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document introuvable."
+        )
+
+    # Inverser l'état actuel
+    doc.est_important = not doc.est_important
+    db.commit()
+    db.refresh(doc)
+
+    return doc
+
+
+# =========================================================
+# HISTORIQUE DE CONSULTATION
+# =========================================================
+
+@router.get(
+    "/historique",
+    response_model=List[schemas.DocumentOut]
+)
+def get_user_consultation_history(
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Récupère la liste des documents consultés récemment par l'utilisateur.
+    """
+    user_im = get_user_im(current_user)
+
+    # Récupérer les documents uniques liés aux actions de consultation de l'utilisateur
+    # Basé sur la table Journal ou une logique d'historique dédiée
+    documents = (
+        db.query(Document)
+        .join(Document.journals)
+        .filter(
+            Document.date_suppression.is_(None)
+        )
+        .order_by(Document.journals.any()) # ou tri par date d'action du journal si disponible
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+    # Alternative propre via les requêtes du CRUD si vous y intégrez l'historique
+    return crud_document.get_user_history_documents(
+        db=db,
+        im_user=user_im,
+        skip=skip,
+        limit=limit
+    ) if hasattr(crud_document, "get_user_history_documents") else documents
 
 
 # =========================================================
@@ -135,13 +271,6 @@ def search_documents(
 # CORBEILLE
 # =========================================================
 
-# =========================================================
-# CORBEILLE
-#
-# RSI  -> voit tous les documents supprimés
-# autres utilisateurs -> voient uniquement leurs documents
-# =========================================================
-
 @router.get(
     "/trash",
     response_model=List[schemas.DocumentOut]
@@ -153,7 +282,6 @@ def list_trash_documents(
 
     user_im = get_user_im(current_user)
 
-    # Récupérer le rôle/type de l'utilisateur
     user_role = (
         getattr(current_user, "type_user", None)
         or getattr(current_user, "role", None)
@@ -162,22 +290,17 @@ def list_trash_documents(
 
     user_role = str(user_role).upper()
 
-    # -----------------------------------------------------
-    # RSI : accès à toute la corbeille
-    # -----------------------------------------------------
     if user_role == "RSI":
         return crud_document.get_trash_documents(
             db=db
         )
 
-    # -----------------------------------------------------
-    # Autres utilisateurs :
-    # uniquement leurs documents supprimés
-    # -----------------------------------------------------
     return crud_document.get_trash_documents_by_user(
         db=db,
         im_user=user_im
     )
+
+
 # =========================================================
 # RESTAURER
 # =========================================================
@@ -256,7 +379,6 @@ def preview_document(
 
     user_im = get_user_im(current_user)
 
-    # Chercher le document dans PostgreSQL
     doc = crud_document.get_document_by_ref(
         db=db,
         num_ref=num_ref
@@ -268,14 +390,13 @@ def preview_document(
             detail="Document introuvable."
         )
 
-    # Vérifier que le PDF est bien stocké dans PostgreSQL
     if not doc.file_data:
         raise HTTPException(
             status_code=404,
             detail="Le fichier PDF n'est pas disponible."
         )
 
-    # Journalisation
+    # Journalisation de l'action de consultation (alimente l'historique)
     crud_document.log_document_action(
         db=db,
         num_ref=num_ref,
@@ -283,7 +404,6 @@ def preview_document(
         action_desc="Consultation/Aperçu"
     )
 
-    # Retourner directement le PDF
     return Response(
         content=doc.file_data,
         media_type="application/pdf",
@@ -306,7 +426,6 @@ def download_document(
 
     user_im = get_user_im(current_user)
 
-    # Chercher le document
     doc = crud_document.get_document_by_ref(
         db=db,
         num_ref=num_ref
@@ -318,14 +437,12 @@ def download_document(
             detail="Document introuvable."
         )
 
-    # Vérifier le PDF
     if not doc.file_data:
         raise HTTPException(
             status_code=404,
             detail="Le fichier n'est pas disponible."
         )
 
-    # Journalisation
     crud_document.log_document_action(
         db=db,
         num_ref=num_ref,
@@ -334,7 +451,6 @@ def download_document(
     )
 
     extension = doc.format or "pdf"
-
     filename = f"{doc.num_ref}.{extension}"
 
     return Response(
@@ -432,3 +548,27 @@ def update_document(
         )
 
     return updated_doc
+# =========================================================
+# LISTE DES DOCUMENTS FAVORIS / IMPORTANTS
+# =========================================================
+
+@router.get(
+    "/favoris",
+    response_model=List[schemas.DocumentOut]
+)
+def list_important_documents(
+    skip: int = 0,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Récupère tous les documents marqués comme favoris ou importants.
+    """
+    get_user_im(current_user)
+
+    return crud_document.get_important_documents(
+        db=db,
+        skip=skip,
+        limit=limit
+    )

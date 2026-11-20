@@ -7,7 +7,7 @@ from fastapi import UploadFile, HTTPException, status
 
 import models
 import schemas
-
+import hashlib
 
 def create_log(
     db: Session,
@@ -43,10 +43,16 @@ def get_document_by_ref(db: Session, num_ref: str):
         .first()
     )
 
-
-# =========================================================
-# AJOUT DOCUMENT
-# =========================================================
+def get_document_by_hash(db: Session, file_hash: str):
+    """
+    Recherche un document ayant exactement la même empreinte SHA-256.
+    """
+    return (
+        db.query(models.Document)
+        .filter(models.Document.file_hash == file_hash)
+        .first()
+    )
+# AJOUT DOCUMENT AVEC DÉTECTION DES DOUBLONS
 
 def create_document(
     db: Session,
@@ -58,63 +64,99 @@ def create_document(
     im_dag_rh: str,
     file: UploadFile
 ):
+    # 1. Vérifier l'existence de l'agent
 
     agent = get_agent_dag_rh(db, im_dag_rh)
 
     if not agent:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"L'agent DAG/RH avec le matricule '{im_dag_rh}' n'existe pas."
+            detail=(
+                f"L'agent DAG/RH avec le matricule "
+                f"'{im_dag_rh}' n'existe pas."
+            )
         )
 
-    # Vérifier référence existante
+    # 2. Vérifier si la référence existe déjà
+
     db_doc = get_document_by_ref(db, num_ref)
 
     if db_doc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Un document avec cette référence existe déjà."
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "DUPLICATE_REFERENCE",
+                "message": "Un document avec cette référence existe déjà.",
+                "num_ref": db_doc.num_ref,
+                "title": db_doc.title
+            }
         )
-
-    # -----------------------------------------------------
-    # Vérification extension
-    # -----------------------------------------------------
+    # 3. Vérifier l'extension du fichier
 
     original_filename = file.filename or "document"
 
     file_ext = (
-        original_filename.split(".")[-1].lower()
+        original_filename.rsplit(".", 1)[-1].lower()
         if "." in original_filename
         else "inconnu"
     )
 
-    # -----------------------------------------------------
-    # Lire le fichier directement en mémoire
-    # -----------------------------------------------------
+    if file_ext != "pdf":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Seuls les fichiers PDF sont acceptés."
+        )
+
+    # 4. Lire le contenu du fichier
 
     file_content = file.file.read()
 
     if not file_content:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Le fichier est vide."
         )
 
-    # -----------------------------------------------------
-    # Limite exemple : 50 Mo par fichier
-    # -----------------------------------------------------
+    # 5. Vérifier la taille : maximum 50 Mo
 
     max_size = 50 * 1024 * 1024
 
     if len(file_content) > max_size:
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Le fichier ne doit pas dépasser 50 Mo."
         )
+    
+    # 6. Vérifier la signature PDF
 
-    # -----------------------------------------------------
-    # Créer le document
-    # -----------------------------------------------------
+    if not file_content.startswith(b"%PDF-"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le fichier envoyé n'est pas un PDF valide."
+        )
+ 
+    # 7. Calculer l'empreinte SHA-256
+ 
+    file_hash = hashlib.sha256(file_content).hexdigest()
+
+    # 8. Rechercher un fichier identique
+
+    existing_document = get_document_by_hash(
+        db=db,
+        file_hash=file_hash
+    )
+
+    if existing_document:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "DUPLICATE_DOCUMENT",
+                "message": "Ce fichier PDF est déjà enregistré.",
+                "num_ref": existing_document.num_ref,
+                "title": existing_document.title
+            }
+        )
+    # 9. Créer le document
 
     new_doc = models.Document(
         num_ref=num_ref,
@@ -125,28 +167,36 @@ def create_document(
         title=title,
         im_dag_rh=im_dag_rh,
 
-        # On ne dépend plus du disque Render
+        # Le fichier n'est pas stocké sur le disque
         file_path=None,
 
-        # Contenu réel du PDF
+        # Contenu PDF stocké dans PostgreSQL
         file_data=file_content,
+
+        # Empreinte du fichier
+        file_hash=file_hash,
 
         date_suppression=None
     )
 
-    db.add(new_doc)
+    try:
+        db.add(new_doc)
 
-    create_log(
-        db,
-        f"Ajout du document {num_ref}",
-        im_dag_rh,
-        num_ref
-    )
+        create_log(
+            db,
+            f"Ajout du document {num_ref}",
+            im_dag_rh,
+            num_ref
+        )
 
-    db.commit()
-    db.refresh(new_doc)
+        db.commit()
+        db.refresh(new_doc)
 
-    return new_doc
+        return new_doc
+
+    except Exception:
+        db.rollback()
+        raise
 
 # =========================================================
 # CORBEILLE D'UN UTILISATEUR
@@ -168,6 +218,7 @@ def get_trash_documents_by_user(
         )
         .all()
     )
+
 # =========================================================
 # JOURNAL
 # =========================================================
@@ -186,6 +237,23 @@ def log_document_action(
     )
 
     db.commit()
+
+
+def get_all_logs(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100
+) -> List[models.Journal]:
+    """
+    Récupère l'intégralité du journal d'audit (actions documents et actions utilisateurs).
+    """
+    return (
+        db.query(models.Journal)
+        .order_by(models.Journal.date_action.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
 
 
 # =========================================================
@@ -383,9 +451,6 @@ def hard_delete_document(
     if not doc:
         return False
 
-    # Le PDF étant maintenant dans PostgreSQL,
-    # il n'y a plus de os.remove()
-
     create_log(
         db,
         f"Suppression définitive du document {num_ref}",
@@ -471,8 +536,68 @@ def purge_expired_trash_documents(
             None
         )
 
-        # Suppression du PDF dans PostgreSQL
-        # en même temps que l'enregistrement
         db.delete(doc)
 
     db.commit()
+
+
+# =========================================================
+# HISTORIQUE DE CONSULTATION (BASÉ SUR LE JOURNAL)
+# =========================================================
+
+def get_user_history_documents(
+    db: Session,
+    im_user: str,
+    skip: int = 0,
+    limit: int = 50
+) -> List[models.Document]:
+    """
+    Récupère les documents uniques consultés ou manipulés 
+    par l'utilisateur à partir du journal d'actions.
+    """
+    subquery = (
+        db.query(models.Journal.num_ref_doc)
+        .filter(
+            models.Journal.im_user == im_user,
+            models.Journal.num_ref_doc.is_not(None)
+        )
+        .order_by(models.Journal.date_action.desc())
+        .distinct()
+        .subquery()
+    )
+
+    return (
+        db.query(models.Document)
+        .filter(
+            models.Document.num_ref.in_(subquery),
+            models.Document.date_suppression.is_(None)
+        )
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+# =========================================================
+# DOCUMENTS FAVORIS / IMPORTANTS
+# =========================================================
+
+def get_important_documents(
+    db: Session,
+    im_user: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50
+) -> List[models.Document]:
+    """
+    Récupère la liste des documents marqués comme importants/favoris.
+    """
+    query = (
+        db.query(models.Document)
+        .filter(
+            models.Document.est_important.is_(True),
+            models.Document.date_suppression.is_(None)
+        )
+        .order_by(models.Document.date_num.desc())
+    )
+
+    return query.offset(skip).limit(limit).all()

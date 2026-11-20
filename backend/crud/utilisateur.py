@@ -1,3 +1,4 @@
+from datetime import date
 from typing import List, Optional
 import uuid
 import bcrypt
@@ -12,6 +13,7 @@ from schemas.utilisateur import (
     UtilisateurUpdate,
 )
 from schemas import utilisateur as schemas_user
+import models
 
 # Dictionnaire de correspondance entre le rôle (chaine) et la sous-classe SQLAlchemy
 ROLE_MAP = {
@@ -20,6 +22,27 @@ ROLE_MAP = {
     "rsi": RSI,
     "dag_rh": DAGRH,
 }
+
+
+# ============================================================
+# UTILITAIRE : JOURNAL D'AUDIT
+# ============================================================
+
+def create_log(
+    db: Session,
+    desc: str,
+    im_user: str,
+    num_ref_doc: Optional[str] = None
+):
+    """Enregistre une action utilisateur dans le journal."""
+    log_entry = models.Journal(
+        id_jour=str(uuid.uuid4())[:8],
+        date_action=date.today(),
+        desc=desc,
+        num_ref_doc=num_ref_doc,
+        im_user=im_user
+    )
+    db.add(log_entry)
 
 
 # ============================================================
@@ -77,7 +100,6 @@ def get_utilisateurs_by_role(
     query = db.query(Utilisateur)
 
     if role:
-        # Filtrer sur la colonne 'type_user' du modèle
         query = query.filter(Utilisateur.type_user == role)
 
     return query.all()
@@ -128,6 +150,14 @@ def request_password_change_for_rsi(
     )
 
     db.add(pending_req)
+
+    # Log de la demande
+    create_log(
+        db,
+        f"Demande de changement de mot de passe initiée ({id_genere})",
+        im
+    )
+
     db.commit()
 
     return {
@@ -142,10 +172,10 @@ def request_password_change_for_rsi(
 
 def create_utilisateur(
     db: Session,
-    user_data: UtilisateurCreate
+    user_data: UtilisateurCreate,
+    im_admin: str
 ) -> Optional[Utilisateur]:
 
-    # Vérification du matricule
     existing_user = get_utilisateur_by_im(
         db,
         user_data.im
@@ -156,10 +186,7 @@ def create_utilisateur(
             f"L'utilisateur avec le matricule '{user_data.im}' existe déjà."
         )
 
-    # Récupération du rôle transmis (role ou type_user selon le schéma Pydantic)
     requested_role = getattr(user_data, "role", getattr(user_data, "type_user", None))
-    
-    # Résolution de la sous-classe polymorphe appropriée
     role_key = str(requested_role).lower() if requested_role else ""
     ModelClass = ROLE_MAP.get(role_key, Utilisateur)
 
@@ -167,7 +194,6 @@ def create_utilisateur(
         user_data.password if hasattr(user_data, "password") else getattr(user_data, "mdp", "")
     )
 
-    # Instanciation dynamique avec la bonne classe polymorphe
     db_user = ModelClass(
         im=user_data.im,
         nom=user_data.nom,
@@ -176,6 +202,13 @@ def create_utilisateur(
     )
 
     db.add(db_user)
+
+    # Enregistrement dans le journal avec l'IM de l'administrateur connecté
+    create_log(
+        db,
+        f"Création du compte utilisateur {user_data.im} ({user_data.nom} {user_data.prenom})",
+        im_admin
+    )
 
     try:
         db.commit()
@@ -196,7 +229,8 @@ def create_utilisateur(
 def update_utilisateur_info(
     db: Session,
     im: str,
-    data: UtilisateurUpdate
+    data: UtilisateurUpdate,
+    im_admin: str
 ) -> Optional[Utilisateur]:
 
     db_user = get_utilisateur_by_im(
@@ -207,18 +241,22 @@ def update_utilisateur_info(
     if not db_user:
         return None
 
-    # Nom
     if data.nom is not None:
         db_user.nom = data.nom
 
-    # Prénom
     if data.prenom is not None:
         db_user.prenom = data.prenom
 
-    # Mise à jour de type_user si transmis
     new_role = getattr(data, "role", getattr(data, "type_user", None))
     if new_role is not None:
         db_user.type_user = new_role
+
+    # Log de la mise à jour
+    create_log(
+        db,
+        f"Mise à jour des informations du compte utilisateur {im}",
+        im_admin
+    )
 
     try:
         db.commit()
@@ -259,6 +297,13 @@ def update_utilisateur_password(
         password_data.new_password
     )
 
+    # Log du changement de mot de passe
+    create_log(
+        db,
+        f"Modification directe du mot de passe pour l'utilisateur {im}",
+        im
+    )
+
     try:
         db.commit()
     except Exception:
@@ -274,7 +319,8 @@ def update_utilisateur_password(
 
 def delete_utilisateur(
     db: Session,
-    im: str
+    im: str,
+    im_admin: str
 ) -> bool:
 
     db_user = get_utilisateur_by_im(
@@ -286,6 +332,14 @@ def delete_utilisateur(
         return False
 
     db.delete(db_user)
+
+    # Log de la suppression
+    create_log(
+        db,
+        f"Suppression du compte utilisateur {im}",
+        im_admin
+    )
+
     db.commit()
 
     return True

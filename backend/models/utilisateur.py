@@ -111,11 +111,9 @@ class RSI(Utilisateur):
     }
 
 
-# ============================================================
+
 # DAG / RH
 # ============================================================
-# Cette classe utilise directement la table utilisateur.
-# Elle n'a donc pas de __tablename__.
 # Elle permet à SQLAlchemy de reconnaître :
 # type_user = "dag_rh"
 # ============================================================

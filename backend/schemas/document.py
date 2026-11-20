@@ -14,6 +14,7 @@ class DocumentBase(BaseModel):
     cat: str
     annee_redac: str
     title: str = "Sans titre"
+    est_important: bool = False
 
 
 # =========================================================
@@ -32,6 +33,7 @@ class DocumentUpdate(BaseModel):
     title: Optional[str] = None
     cat: Optional[str] = None
     annee_redac: Optional[str] = None
+    est_important: Optional[bool] = None
 
 
 # =========================================================
@@ -60,3 +62,4 @@ class SearchFilter(BaseModel):
     annee_redac: Optional[str] = None
     format: Optional[str] = None
     title: Optional[str] = None
+    est_important: Optional[bool] = None

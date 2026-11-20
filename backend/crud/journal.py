@@ -1,6 +1,5 @@
-
 from datetime import date
-from typing import List, Optional
+from typing import Optional, List
 from sqlalchemy.orm import Session
 import models
 
@@ -12,19 +11,19 @@ def get_journals(
     skip: int = 0,
     limit: int = 100
 ) -> List[models.Journal]:
-    """Récupère les entrées du journal filtrées par date, utilisateur ou document."""
-    query = db.query(models.Journal)
+    """
+    Récupère le journal d'audit avec des filtres optionnels 
+    par date, utilisateur ou référence de document.
+    """
+    query = db.query(models.Journal).order_by(models.Journal.date_action.desc())
 
     if date_action:
         query = query.filter(models.Journal.date_action == date_action)
-    if im_user:
-        query = query.filter(models.Journal.im_user == im_user)
-    if num_ref_doc:
-        query = query.filter(models.Journal.num_ref_doc == num_ref_doc)
 
-    return (
-        query.order_by(models.Journal.date_action.desc())
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
+    if im_user:
+        query = query.filter(models.Journal.im_user.ilike(f"%{im_user}%"))
+
+    if num_ref_doc:
+        query = query.filter(models.Journal.num_ref_doc.ilike(f"%{num_ref_doc}%"))
+
+    return query.offset(skip).limit(limit).all()

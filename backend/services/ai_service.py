@@ -154,3 +154,4 @@ def analyser_pdf_avec_gemini(pdf_bytes: bytes, prompt: str) -> str:
     raise RuntimeError(
         "Impossible d'analyser le PDF après plusieurs tentatives."
     )
+    

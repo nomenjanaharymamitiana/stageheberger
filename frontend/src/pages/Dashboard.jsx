@@ -1,56 +1,94 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import logoGed from "../assets/WhatsApp Image 2026-09-21 at 11.01.52.jpeg";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import "../styles/theme.css";
 import DocumentUploadModal from "../components/DocumentUploadModal";
 import DocumentEditModal from "../components/DocumentEditModal";
 import Parametres from "./Parametres";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
-const API_BASE_URL = `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/api/v1/documents`;
+const API_BASE_URL = `${
+  import.meta.env.VITE_API_URL || "http://localhost:8000"
+}/api/v1/documents`;
 
 const CATEGORIES = [
-  { id: "Nomination", icon: "bi-person-badge-fill", color: "#6366f1", bg: "#e0e7ff", darkBg: "rgba(99, 102, 241, 0.2)" },
-  { id: "Finance", icon: "bi-cash-coin", color: "#10b981", bg: "#d1fae5", darkBg: "rgba(16, 185, 129, 0.2)" },
-  { id: "Développement", icon: "bi-graph-up-arrow", color: "#f59e0b", bg: "#fef3c7", darkBg: "rgba(245, 158, 11, 0.2)" }
+  {
+    id: "Nomination",
+    icon: "bi-person-badge-fill",
+    color: "#6366f1",
+    bg: "#e0e7ff",
+    darkBg: "rgba(99, 102, 241, 0.2)",
+  },
+  {
+    id: "Finance",
+    icon: "bi-cash-coin",
+    color: "#10b981",
+    bg: "#d1fae5",
+    darkBg: "rgba(16, 185, 129, 0.2)",
+  },
+  {
+    id: "Développement",
+    icon: "bi-graph-up-arrow",
+    color: "#f59e0b",
+    bg: "#fef3c7",
+    darkBg: "rgba(245, 158, 11, 0.2)",
+  },
 ];
+
+const buttonStyle = {
+  borderRadius: "7px",
+  padding: "7px 10px",
+  cursor: "pointer",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: "6px",
+  fontSize: "12px",
+  fontWeight: "600",
+};
 
 export default function Dashboard({ user: initialUser, onLogout }) {
   const [user, setUser] = useState(initialUser);
 
-  // Mode sombre / clair
   const [darkMode, setDarkMode] = useState(false);
-
-  // Navigation : "tableau", "documents", "corbeille", "parametres"
   const [activeTab, setActiveTab] = useState("tableau");
 
-  // Sous-onglets Paramètres
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [activeSettingsSubTab, setActiveSettingsSubTab] = useState("compte");
+  const [activeSettingsSubTab, setActiveSettingsSubTab] =
+    useState("compte");
 
-  // États des documents
   const [documents, setDocuments] = useState([]);
   const [allDocuments, setAllDocuments] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  // Corbeille
   const [trashDocuments, setTrashDocuments] = useState([]);
-  const [trashLoading, setTrashLoading] = useState(false);
+  const [historyDocuments, setHistoryDocuments] = useState([]);
+  const [favoriteDocuments, setFavoriteDocuments] = useState([]);
 
-  // Recherche dynamique
+  const [selectedCategory, setSelectedCategory] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Modales & États de téléchargement / prévisualisation
+  const [loading, setLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [favoritesLoading, setFavoritesLoading] = useState(false);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [docToEdit, setDocToEdit] = useState(null);
+  const [docToDelete, setDocToDelete] = useState(null);
+
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [restoringRef, setRestoringRef] = useState(null);
+  const [downloadingRef, setDownloadingRef] = useState(null);
+
   const [previewDoc, setPreviewDoc] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [docToDelete, setDocToDelete] = useState(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [downloadingRef, setDownloadingRef] = useState(null);
 
-  // Thèmes dynamique (Clair / Sombre)
+  // États pour l'analyse IA du PDF
+  const [aiAnalysisOpen, setAiAnalysisOpen] = useState(false);
+  const [aiAnalysisLoading, setAiAnalysisLoading] = useState(false);
+  const [aiAnalysisResult, setAiAnalysisResult] = useState("");
+  const [aiAnalysisError, setAiAnalysisError] = useState("");
+
   const theme = {
     bg: darkMode ? "#0f172a" : "#f8fafc",
     sidebarBg: darkMode ? "#1e293b" : "#ffffff",
@@ -60,188 +98,289 @@ export default function Dashboard({ user: initialUser, onLogout }) {
     border: darkMode ? "#334155" : "#e2e8f0",
     hoverBg: darkMode ? "#334155" : "#f1f5f9",
     inputBg: darkMode ? "#0f172a" : "#ffffff",
-    accent: "#3b82f6"
+    accent: "#3b82f6",
   };
+
+  const getAuthHeaders = useCallback(() => {
+    const token =
+      localStorage.getItem("token") ||
+      user?.im ||
+      user?.im_dag_rh ||
+      "";
+
+    return {
+      Authorization: `Bearer ${token}`,
+      "X-User-IM": token,
+    };
+  }, [user]);
 
   const handleUpdateUser = (updatedData) => {
     setUser((prev) => ({ ...prev, ...updatedData }));
   };
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem("token") || user?.im || user?.im_dag_rh || "";
-    return {
-      "Authorization": `Bearer ${token}`,
-      "X-User-IM": token
-    };
+  const extractDocuments = (data) => {
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.documents)) return data.documents;
+    return [];
   };
 
-  // GET /api/v1/documents/
-  const fetchAllDocuments = async () => {
+  const getApiError = async (response) => {
+    let message = `Erreur HTTP ${response.status}`;
     try {
-      const response = await fetch(`${API_BASE_URL}/`, { headers: getAuthHeaders() });
-      if (response.ok) {
-        const data = await response.json();
-        const list = Array.isArray(data) ? data : data.documents || [];
-        setAllDocuments(list);
+      const data = await response.json();
+      if (typeof data?.detail === "string") message = data.detail;
+      else if (typeof data?.message === "string") message = data.message;
+      else if (Array.isArray(data?.detail)) {
+        message = data.detail.map((item) => item.msg || JSON.stringify(item)).join("\n");
       }
+    } catch {
+      try {
+        const text = await response.text();
+        if (text) message = text;
+      } catch {}
+    }
+    return message;
+  };
+
+  // Chargement global
+  const fetchAllDocuments = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/`, {
+        headers: getAuthHeaders(),
+      });
+      if (!response.ok) throw new Error(await getApiError(response));
+      const data = await response.json();
+      setAllDocuments(extractDocuments(data));
     } catch (error) {
       console.error("Erreur récupération globale :", error);
     }
-  };
+  }, [getAuthHeaders]);
 
-  // GET /api/v1/documents/ ou GET /api/v1/documents/search?cat=...
-  const fetchDocuments = async (category = selectedCategory) => {
-    setLoading(true);
-    try {
-      let url = `${API_BASE_URL}/`;
-      if (category) {
-        url = `${API_BASE_URL}/search?cat=${encodeURIComponent(category)}`;
-      }
-
-      const response = await fetch(url, { headers: getAuthHeaders() });
-      if (response.ok) {
+  const fetchDocuments = useCallback(
+    async (category = selectedCategory) => {
+      setLoading(true);
+      try {
+        let url = `${API_BASE_URL}/`;
+        if (category) {
+          url = `${API_BASE_URL}/search?cat=${encodeURIComponent(category)}`;
+        }
+        const response = await fetch(url, { headers: getAuthHeaders() });
+        if (!response.ok) throw new Error(await getApiError(response));
         const data = await response.json();
-        const list = Array.isArray(data) ? data : data.documents || [];
-        setDocuments(list);
+        setDocuments(extractDocuments(data));
+      } catch (error) {
+        console.error("Erreur récupération des documents :", error);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error("Erreur de connexion à l'API :", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [getAuthHeaders, selectedCategory]
+  );
 
-  // GET /api/v1/documents/me
   const fetchMyDocuments = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/me`, { headers: getAuthHeaders() });
-      if (response.ok) {
-        const data = await response.json();
-        const list = Array.isArray(data) ? data : data.documents || [];
-        setDocuments(list);
-      }
+      const response = await fetch(`${API_BASE_URL}/me`, {
+        headers: getAuthHeaders(),
+      });
+      if (!response.ok) throw new Error(await getApiError(response));
+      const data = await response.json();
+      setDocuments(extractDocuments(data));
     } catch (error) {
-      console.error("Erreur récupération mes documents :", error);
+      console.error("Erreur récupération de mes documents :", error);
     } finally {
       setLoading(false);
     }
   };
 
-  // GET /api/v1/documents/trash
   const fetchTrashDocuments = async () => {
-    setTrashLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/trash`, { headers: getAuthHeaders() });
-      if (response.ok) {
-        const data = await response.json();
-        const list = Array.isArray(data) ? data : data.documents || [];
-        setTrashDocuments(list);
-      }
+      const response = await fetch(`${API_BASE_URL}/trash`, {
+        headers: getAuthHeaders(),
+      });
+      if (!response.ok) throw new Error(await getApiError(response));
+      const data = await response.json();
+      setTrashDocuments(extractDocuments(data));
     } catch (error) {
       console.error("Erreur corbeille :", error);
-    } finally {
-      setTrashLoading(false);
     }
   };
 
-  // GET /api/v1/documents/{num_ref}/download
-  const handleDownload = async (doc) => {
-    setDownloadingRef(doc.num_ref);
+  // Récupérer l'historique de consultation
+  const fetchHistoryDocuments = async () => {
+    setHistoryLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/${encodeURIComponent(doc.num_ref)}/download`, {
-        headers: getAuthHeaders()
+      const response = await fetch(`${API_BASE_URL}/historique`, {
+        headers: getAuthHeaders(),
       });
+      if (!response.ok) throw new Error(await getApiError(response));
+      const data = await response.json();
+      setHistoryDocuments(extractDocuments(data));
+    } catch (error) {
+      console.error("Erreur historique :", error);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        const fileExtension = doc.format ? doc.format.toLowerCase() : "pdf";
-        a.download = `${doc.num_ref}_${doc.title.replace(/\s+/g, "_")}.${fileExtension}`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
+  // Récupérer les documents favoris / importants
+  const fetchFavoriteDocuments = async () => {
+    setFavoritesLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/favoris`, {
+        headers: getAuthHeaders(),
+      });
+      if (!response.ok) throw new Error(await getApiError(response));
+      const data = await response.json();
+      setFavoriteDocuments(extractDocuments(data));
+    } catch (error) {
+      console.error("Erreur récupération favoris :", error);
+    } finally {
+      setFavoritesLoading(false);
+    }
+  };
+
+  // Basculer l'état Favori / Important (avec encodage sécurisé de la référence)
+  const handleToggleImportant = async (numRef, e) => {
+    e.stopPropagation();
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/${encodeURIComponent(numRef)}/favoris`,
+        {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+        }
+      );
+      if (!response.ok) throw new Error(await getApiError(response));
+      
+      const updatedDoc = await response.json();
+
+      // Mettre à jour tous les états locaux de documents de manière synchrone
+      const updateList = (list) =>
+        list.map((doc) =>
+          doc.num_ref === numRef ? { ...doc, est_important: updatedDoc.est_important } : doc
+        );
+
+      setDocuments(updateList);
+      setAllDocuments(updateList);
+      setHistoryDocuments(updateList);
+      
+      // Actualiser la liste des favoris si l'onglet actif est les favoris
+      if (activeTab === "favoris") {
+        fetchFavoriteDocuments();
       } else {
-        alert("Impossible de télécharger le document.");
+        // Mettre à jour ou filtrer la liste locale des favoris
+        if (!updatedDoc.est_important) {
+          setFavoriteDocuments((prev) => prev.filter((d) => d.num_ref !== numRef));
+        } else {
+          fetchFavoriteDocuments();
+        }
       }
     } catch (error) {
-      console.error("Erreur lors du téléchargement :", error);
-      alert("Une erreur est survenue lors du téléchargement.");
-    } finally {
-      setDownloadingRef(null);
+      alert(`Impossible de modifier le statut favori.\n${error.message}`);
     }
   };
 
-  // POST /api/v1/documents/{num_ref}/restore
-  const handleRestore = async (num_ref) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/${encodeURIComponent(num_ref)}/restore`, {
-        method: "POST",
-        headers: getAuthHeaders()
-      });
-
-      if (response.ok) {
-        setTrashDocuments((prev) => prev.filter((doc) => doc.num_ref !== num_ref));
-        await fetchAllDocuments();
-        await fetchDocuments(selectedCategory);
-      } else {
-        alert("Erreur lors de la restauration du document.");
-      }
-    } catch (error) {
-      console.error("Erreur restauration :", error);
-    }
-  };
-
-  // DELETE /api/v1/documents/{num_ref}
   const confirmDelete = async () => {
-    if (!docToDelete) return;
+    if (!docToDelete || isDeleting) return;
+    const deletedRef = docToDelete.num_ref;
     setIsDeleting(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/${encodeURIComponent(docToDelete.num_ref)}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json", ...getAuthHeaders() }
-      });
 
-      if (response.ok) {
-        setDocuments((prev) => prev.filter((doc) => doc.num_ref !== docToDelete.num_ref));
-        setAllDocuments((prev) => prev.filter((doc) => doc.num_ref !== docToDelete.num_ref));
-        setDocToDelete(null);
-      } else {
-        alert("Erreur lors de la suppression du document.");
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/${encodeURIComponent(deletedRef)}`,
+        {
+          method: "DELETE",
+          headers: getAuthHeaders(),
+        }
+      );
+      if (!response.ok) {
+        alert(await getApiError(response));
+        return;
       }
+      setDocToDelete(null);
+      setDocuments((prev) => prev.filter((d) => d.num_ref !== deletedRef));
+      setAllDocuments((prev) => prev.filter((d) => d.num_ref !== deletedRef));
+      setFavoriteDocuments((prev) => prev.filter((d) => d.num_ref !== deletedRef));
+      await fetchTrashDocuments();
     } catch (error) {
-      console.error("Erreur réseau :", error);
+      console.error("Erreur suppression :", error);
     } finally {
       setIsDeleting(false);
     }
   };
 
-  // GET /api/v1/documents/{num_ref}/preview
+  const handleRestore = async (numRef) => {
+    if (restoringRef) return;
+    setRestoringRef(numRef);
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/${encodeURIComponent(numRef)}/restore`,
+        {
+          method: "POST",
+          headers: getAuthHeaders(),
+        }
+      );
+      if (!response.ok) throw new Error(await getApiError(response));
+      setTrashDocuments((prev) => prev.filter((d) => d.num_ref !== numRef));
+      await fetchAllDocuments();
+      await fetchDocuments(selectedCategory);
+      alert("Document restauré avec succès.");
+    } catch (error) {
+      alert(`Impossible de restaurer.\n${error.message}`);
+    } finally {
+      setRestoringRef(null);
+    }
+  };
+
+  const handleDownload = async (doc) => {
+    if (!doc?.num_ref) return;
+    setDownloadingRef(doc.num_ref);
+    let objectUrl = null;
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/${encodeURIComponent(doc.num_ref)}/download`,
+        { headers: getAuthHeaders() }
+      );
+      if (!response.ok) throw new Error(await getApiError(response));
+      const blob = await response.blob();
+      objectUrl = window.URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      const safeTitle = String(doc.title || "document").replace(/[\\/:*?"<>|]+/g, "_");
+      link.download = `${doc.num_ref}_${safeTitle}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      alert(`Impossible de télécharger.\n${error.message}`);
+    } finally {
+      if (objectUrl) window.URL.revokeObjectURL(objectUrl);
+      setDownloadingRef(null);
+    }
+  };
+
   const handleOpenPreview = async (doc) => {
+    if (previewUrl) window.URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(null);
     setPreviewDoc(doc);
     setPreviewLoading(true);
+    setAiAnalysisOpen(false);
+    setAiAnalysisResult("");
+    setAiAnalysisError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/${encodeURIComponent(doc.num_ref)}/preview`, {
-        headers: getAuthHeaders()
-      });
-
-      if (response.ok) {
-        const blobData = await response.blob();
-        const contentType = response.headers.get("Content-Type") || "application/pdf";
-        const fileBlob = new Blob([blobData], { type: contentType });
-        const objectUrl = URL.createObjectURL(fileBlob);
-        setPreviewUrl(objectUrl);
-      } else {
-        alert("Erreur lors du chargement de la prévisualisation.");
-        setPreviewDoc(null);
-      }
-    } catch (err) {
-      console.error("Erreur prévisualisation :", err);
-      alert("Erreur lors du chargement de la prévisualisation.");
+      const response = await fetch(
+        `${API_BASE_URL}/${encodeURIComponent(doc.num_ref)}/preview`,
+        { headers: getAuthHeaders() }
+      );
+      if (!response.ok) throw new Error(await getApiError(response));
+      const blobData = await response.blob();
+      const fileBlob = new Blob([blobData], { type: "application/pdf" });
+      setPreviewUrl(window.URL.createObjectURL(fileBlob));
+    } catch (error) {
+      alert(`Impossible d'afficher le document.\n${error.message}`);
       setPreviewDoc(null);
     } finally {
       setPreviewLoading(false);
@@ -249,28 +388,60 @@ export default function Dashboard({ user: initialUser, onLogout }) {
   };
 
   const handleClosePreview = () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    if (previewUrl) window.URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
     setPreviewDoc(null);
+    setPreviewLoading(false);
+    setAiAnalysisOpen(false);
   };
 
-  const getDaysRemaining = (deletedAtDate) => {
-    if (!deletedAtDate) return 30;
-    const deletedDate = new Date(deletedAtDate);
-    const now = new Date();
-    const diffTime = Math.abs(now - deletedDate);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    const remaining = 30 - diffDays;
-    return remaining > 0 ? remaining : 0;
+  const handleRunAiAnalysis = async () => {
+    if (!previewDoc?.num_ref || aiAnalysisLoading) return;
+    setAiAnalysisLoading(true);
+    setAiAnalysisError("");
+    setAiAnalysisResult("");
+    setAiAnalysisOpen(true);
+
+    try {
+      const baseUrlClean = (
+        import.meta.env.VITE_API_URL || "http://localhost:8000"
+      ).replace(/\/$/, "");
+
+      const response = await fetch(
+        `${baseUrlClean}/api/v1/assistant/analyser-pdf/${encodeURIComponent(
+          previewDoc.num_ref
+        )}`,
+        { method: "POST", headers: getAuthHeaders() }
+      );
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : `Erreur HTTP ${response.status}`);
+      }
+      setAiAnalysisResult(data.analyse || "Aucune analyse retournée.");
+    } catch (error) {
+      setAiAnalysisError(error.message || "Impossible d'effectuer l'analyse.");
+    } finally {
+      setAiAnalysisLoading(false);
+    }
   };
 
-  // Filtrage local dynamique dans le tableau
+  const getDaysRemaining = (dateSuppression) => {
+    if (!dateSuppression) return null;
+    const deletedDate = new Date(dateSuppression);
+    if (Number.isNaN(deletedDate.getTime())) return null;
+    const expirationDate = new Date(deletedDate);
+    expirationDate.setDate(expirationDate.getDate() + 30);
+    const remainingTime = expirationDate.getTime() - Date.now();
+    if (remainingTime <= 0) return 0;
+    return Math.ceil(remainingTime / (1000 * 60 * 60 * 24));
+  };
+
   const searchedDocuments = allDocuments.filter((doc) => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return true;
-    const fields = [doc.num_ref, doc.title, doc.cat, doc.annee_redac, doc.format];
-    return fields.some((value) =>
-      value !== null && value !== undefined && String(value).toLowerCase().includes(query)
+    return [doc.num_ref, doc.title, doc.cat, doc.annee_redac, doc.format].some(
+      (val) => val && String(val).toLowerCase().includes(query)
     );
   });
 
@@ -279,218 +450,140 @@ export default function Dashboard({ user: initialUser, onLogout }) {
   useEffect(() => {
     fetchAllDocuments();
     fetchDocuments(null);
-  }, []);
+    fetchTrashDocuments();
+    fetchFavoriteDocuments();
+  }, [fetchAllDocuments, fetchDocuments]);
 
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
+  const navButtonStyle = (isActive) => ({
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    width: "100%",
+    padding: "11px 14px",
+    borderRadius: "10px",
+    border: "none",
+    backgroundColor: isActive ? (darkMode ? "#3b82f6" : "#0f172a") : "transparent",
+    color: isActive ? "#ffffff" : theme.textSecondary,
+    fontWeight: isActive ? "600" : "500",
+    cursor: "pointer",
+    textAlign: "left",
+    fontSize: "14px",
+  });
 
-  const handleCategoryClick = (catId) => {
-    const newCategory = selectedCategory === catId ? null : catId;
-    setSelectedCategory(newCategory);
-    fetchDocuments(newCategory);
+  const cardStyle = {
+    backgroundColor: theme.cardBg,
+    border: `1px solid ${theme.border}`,
+    borderRadius: "12px",
+    padding: "20px",
+    boxShadow: "0 2px 5px rgba(0,0,0,0.03)",
   };
 
-  const getCategoryCount = (catId) => {
-    return allDocuments.filter(
-      (doc) => doc.cat && doc.cat.trim().toLowerCase() === catId.toLowerCase()
-    ).length;
-  };
-
-  const renderPieChart = () => {
-    const nominationCount = getCategoryCount("Nomination");
-    const financeCount = getCategoryCount("Finance");
-    const developpementCount = getCategoryCount("Développement");
-    const total = nominationCount + financeCount + developpementCount;
-
-    if (total === 0) {
-      return <p style={{ fontSize: "12px", color: theme.textSecondary, textAlign: "center", margin: "auto" }}>Aucune donnée</p>;
-    }
-
-    const slices = [
-      { percentage: (nominationCount / total) * 100, color: "#6366f1", label: "Nomination" },
-      { percentage: (financeCount / total) * 100, color: "#10b981", label: "Finance" },
-      { percentage: (developpementCount / total) * 100, color: "#f59e0b", label: "Développement" },
-    ];
-
-    let cumulativePercent = 0;
-
-    return (
-      <div style={{ display: "flex", alignItems: "center", gap: "20px", flexWrap: "wrap" }}>
-        <svg viewBox="0 0 32 32" style={{ width: "90px", height: "90px", transform: "rotate(-90deg)", borderRadius: "50%" }}>
-          {slices.map((slice, index) => {
-            if (slice.percentage === 0) return null;
-            const strokeDasharray = `${slice.percentage} ${100 - slice.percentage}`;
-            const strokeDashoffset = -cumulativePercent;
-            cumulativePercent += slice.percentage;
-
-            return (
-              <circle
-                key={index}
-                cx="16"
-                cy="16"
-                r="15.91549430918954"
-                fill="transparent"
-                stroke={slice.color}
-                strokeWidth="31.8"
-                strokeDasharray={strokeDasharray}
-                strokeDashoffset={strokeDashoffset}
-              />
-            );
-          })}
-        </svg>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          {slices.map((slice, idx) => (
-            <div key={idx} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", color: theme.textPrimary }}>
-              <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: slice.color }}></span>
-              <strong>{slice.label} :</strong> {Math.round(slice.percentage)}%
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
+  const tableStyle = { width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" };
+  const thStyle = { padding: "12px 14px", backgroundColor: theme.bg, borderBottom: `1px solid ${theme.border}`, color: theme.textSecondary, whiteSpace: "nowrap" };
+  const tdStyle = { padding: "12px 14px", borderBottom: `1px solid ${theme.border}`, color: theme.textPrimary };
+  const iconButtonStyle = { ...buttonStyle, backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}`, color: theme.textPrimary };
 
   return (
-    <div className="layout-container" style={{ backgroundColor: theme.bg, color: theme.textPrimary, fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif", display: "flex", minHeight: "100vh", transition: "background-color 0.3s, color 0.3s" }}>
-      
+    <div
+      style={{
+        backgroundColor: theme.bg,
+        color: theme.textPrimary,
+        fontFamily: "'Inter', sans-serif",
+        display: "flex",
+        minHeight: "100vh",
+      }}
+    >
       {/* SIDEBAR */}
-      <aside className="sidebar" style={{ backgroundColor: theme.sidebarBg, borderRight: `1px solid ${theme.border}`, width: "260px", display: "flex", flexDirection: "column", justifyContent: "space-between", transition: "all 0.3s" }}>
+      <aside
+        style={{
+          backgroundColor: theme.sidebarBg,
+          borderRight: `1px solid ${theme.border}`,
+          width: "260px",
+          minWidth: "260px",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+        }}
+      >
         <div>
-          <div className="brand-header" style={{ padding: "20px 18px", borderBottom: `1px solid ${theme.border}`, display: "flex", alignItems: "center", gap: "12px" }}>
-            <img src={logoGed} alt="Logo GED" style={{ width: "42px", height: "42px", borderRadius: "10px", objectFit: "cover", boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }} />
+          <div style={{ padding: "20px 18px", borderBottom: `1px solid ${theme.border}`, display: "flex", alignItems: "center", gap: "12px" }}>
+            <img src={logoGed} alt="Logo" style={{ width: "42px", height: "42px", borderRadius: "10px", objectFit: "cover" }} />
             <div>
-              <h1 style={{ fontSize: "16px", fontWeight: "700", color: theme.textPrimary, margin: 0 }}>
-                GED District
-              </h1>
-              <p style={{ fontSize: "12px", color: theme.textSecondary, margin: 0 }}>
-                Haute Matsiatra
-              </p>
+              <h1 style={{ fontSize: "16px", fontWeight: "700", margin: 0 }}>GED District</h1>
+              <p style={{ fontSize: "12px", color: theme.textSecondary, margin: 0 }}>Haute Matsiatra</p>
             </div>
           </div>
 
           <nav style={{ padding: "16px 12px", display: "flex", flexDirection: "column", gap: "6px" }}>
             <button
-              onClick={() => { setActiveTab("tableau"); fetchDocuments(null); }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "12px",
-                padding: "11px 14px",
-                borderRadius: "10px",
-                border: "none",
-                backgroundColor: activeTab === "tableau" ? (darkMode ? "#3b82f6" : "#0f172a") : "transparent",
-                color: activeTab === "tableau" ? "#ffffff" : theme.textSecondary,
-                fontWeight: activeTab === "tableau" ? "600" : "500",
-                cursor: "pointer",
-                textAlign: "left",
-                fontSize: "14px",
-                transition: "all 0.2s"
-              }}
+              onClick={() => { setActiveTab("tableau"); setSearchQuery(""); fetchDocuments(null); }}
+              style={navButtonStyle(activeTab === "tableau")}
             >
-              <i className="bi bi-grid-1x2-fill"></i> Tableau de bord
+              <i className="bi bi-grid-1x2-fill" /> Tableau de bord
             </button>
 
             <button
               onClick={() => { setActiveTab("documents"); fetchMyDocuments(); }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "12px",
-                padding: "11px 14px",
-                borderRadius: "10px",
-                border: "none",
-                backgroundColor: activeTab === "documents" ? (darkMode ? "#3b82f6" : "#0f172a") : "transparent",
-                color: activeTab === "documents" ? "#ffffff" : theme.textSecondary,
-                fontWeight: activeTab === "documents" ? "600" : "500",
-                cursor: "pointer",
-                textAlign: "left",
-                fontSize: "14px",
-                transition: "all 0.2s"
-              }}
+              style={navButtonStyle(activeTab === "documents")}
             >
-              <i className="bi bi-folder-fill"></i> Mes Documents
+              <i className="bi bi-folder-fill" /> Mes Documents
+            </button>
+
+            {/* ONGLET FAVORIS */}
+            <button
+              onClick={() => { setActiveTab("favoris"); fetchFavoriteDocuments(); }}
+              style={navButtonStyle(activeTab === "favoris")}
+            >
+              <i className="bi bi-star-fill" style={{ color: "#f59e0b" }} /> Favoris
+            </button>
+
+            <button
+              onClick={() => { setActiveTab("historique"); fetchHistoryDocuments(); }}
+              style={navButtonStyle(activeTab === "historique")}
+            >
+              <i className="bi bi-clock-history" /> Historique
             </button>
 
             <button
               onClick={() => { setActiveTab("corbeille"); fetchTrashDocuments(); }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "12px",
-                padding: "11px 14px",
-                borderRadius: "10px",
-                border: "none",
-                backgroundColor: activeTab === "corbeille" ? (darkMode ? "#3b82f6" : "#0f172a") : "transparent",
-                color: activeTab === "corbeille" ? "#ffffff" : theme.textSecondary,
-                fontWeight: activeTab === "corbeille" ? "600" : "500",
-                cursor: "pointer",
-                textAlign: "left",
-                fontSize: "14px",
-                transition: "all 0.2s"
-              }}
+              style={navButtonStyle(activeTab === "corbeille")}
             >
-              <i className="bi bi-trash3-fill"></i> Corbeille
+              <i className="bi bi-trash3-fill" /> Corbeille
+              {trashDocuments.length > 0 && (
+                <span style={{ marginLeft: "auto", borderRadius: "20px", padding: "2px 7px", fontSize: "11px", backgroundColor: "#ef4444", color: "#fff" }}>
+                  {trashDocuments.length}
+                </span>
+              )}
             </button>
 
             <div>
               <button
-                onClick={() => {
-                  setIsSettingsOpen(!isSettingsOpen);
-                  setActiveTab("parametres");
-                }}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  width: "100%",
-                  padding: "11px 14px",
-                  borderRadius: "10px",
-                  border: "none",
-                  backgroundColor: activeTab === "parametres" ? (darkMode ? "#3b82f6" : "#0f172a") : "transparent",
-                  color: activeTab === "parametres" ? "#ffffff" : theme.textSecondary,
-                  fontWeight: activeTab === "parametres" ? "600" : "500",
-                  cursor: "pointer",
-                  fontSize: "14px",
-                  transition: "all 0.2s"
-                }}
+                onClick={() => { setIsSettingsOpen(!isSettingsOpen); setActiveTab("parametres"); }}
+                style={{ ...navButtonStyle(activeTab === "parametres"), justifyContent: "space-between" }}
               >
                 <span style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <i className="bi bi-gear-fill"></i> Paramètres
+                  <i className="bi bi-gear-fill" /> Paramètres
                 </span>
-                <i className={`bi bi-chevron-${isSettingsOpen ? "up" : "down"}`} style={{ fontSize: "12px" }}></i>
+                <i className={`bi bi-chevron-${isSettingsOpen ? "up" : "down"}`} />
               </button>
 
               {isSettingsOpen && (
                 <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginTop: "4px", paddingLeft: "28px" }}>
                   {[
-                    { id: "compte", label: "Paramètres du compte", icon: "bi-person" },
-                    { id: "password", label: "Mise à jour du compte", icon: "bi-shield-lock" }
+                    { id: "compte", label: "Mon Compte", icon: "bi-person" },
+                    { id: "password", label: "Sécurité", icon: "bi-shield-lock" },
                   ].map((sub) => (
                     <button
                       key={sub.id}
-                      onClick={() => {
-                        setActiveTab("parametres");
-                        setActiveSettingsSubTab(sub.id);
-                      }}
+                      onClick={() => { setActiveTab("parametres"); setActiveSettingsSubTab(sub.id); }}
                       style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        padding: "8px 10px",
-                        borderRadius: "8px",
-                        border: "none",
+                        display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", borderRadius: "8px", border: "none",
                         backgroundColor: activeTab === "parametres" && activeSettingsSubTab === sub.id ? theme.hoverBg : "transparent",
-                        color: activeTab === "parametres" && activeSettingsSubTab === sub.id ? theme.textPrimary : theme.textSecondary,
-                        fontWeight: activeSettingsSubTab === sub.id ? "600" : "500",
-                        fontSize: "13px",
-                        cursor: "pointer"
+                        color: activeSettingsSubTab === sub.id ? theme.textPrimary : theme.textSecondary,
+                        cursor: "pointer", fontSize: "12px", textAlign: "left",
                       }}
                     >
-                      <i className={`bi ${sub.icon}`}></i> {sub.label}
+                      <i className={`bi ${sub.icon}`} /> {sub.label}
                     </button>
                   ))}
                 </div>
@@ -499,293 +592,118 @@ export default function Dashboard({ user: initialUser, onLogout }) {
 
             <button
               onClick={() => setIsModalOpen(true)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "10px",
-                padding: "12px 14px",
-                borderRadius: "10px",
-                border: "none",
-                backgroundColor: "#3b82f6",
-                color: "#ffffff",
-                fontWeight: "600",
-                cursor: "pointer",
-                marginTop: "16px",
-                fontSize: "13px",
-                boxShadow: "0 4px 12px rgba(59, 130, 246, 0.3)",
-                transition: "all 0.2s"
-              }}
+              style={{ ...buttonStyle, width: "100%", padding: "12px 14px", marginTop: "16px", border: "none", backgroundColor: "#3b82f6", color: "#ffffff", boxShadow: "0 4px 12px rgba(59,130,246,0.3)" }}
             >
-              <i className="bi bi-plus-lg"></i> Nouveau Document
+              <i className="bi bi-plus-lg" /> Nouveau Document
             </button>
           </nav>
         </div>
 
         <div style={{ padding: "16px", borderTop: `1px solid ${theme.border}`, fontSize: "12px", color: theme.textSecondary }}>
-          <p style={{ margin: "0 0 4px 0", display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#22c55e" }}></span>
-            <span>Système En Ligne</span>
+          <p style={{ margin: "0 0 4px", display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#22c55e" }} /> En Ligne
           </p>
-          <span>Version v1.2.0</span>
+          <span>v1.3.0 - Pro</span>
         </div>
       </aside>
 
       {/* CONTENU PRINCIPAL */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-        
-        {/* TOPBAR */}
-        <header style={{ backgroundColor: theme.sidebarBg, padding: "14px 28px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "flex-end", alignItems: "center", transition: "all 0.3s" }}>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <header style={{ backgroundColor: theme.sidebarBg, padding: "14px 28px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
             <button
               onClick={() => setDarkMode(!darkMode)}
-              style={{
-                backgroundColor: theme.bg,
-                border: `1px solid ${theme.border}`,
-                color: theme.textPrimary,
-                borderRadius: "50%",
-                width: "36px",
-                height: "36px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
-                fontSize: "15px",
-                transition: "all 0.2s"
-              }}
-              title={darkMode ? "Passer au mode clair" : "Passer au mode sombre"}
+              style={{ backgroundColor: theme.bg, border: `1px solid ${theme.border}`, color: theme.textPrimary, borderRadius: "50%", width: "36px", height: "36px", cursor: "pointer" }}
             >
-              <i className={`bi ${darkMode ? "bi-sun-fill" : "bi-moon-stars-fill"}`}></i>
+              <i className={`bi ${darkMode ? "bi-sun-fill" : "bi-moon-stars-fill"}`} />
             </button>
 
-            <div style={{ width: "1px", height: "24px", backgroundColor: theme.border }}></div>
+            <div style={{ width: "1px", height: "24px", backgroundColor: theme.border }} />
 
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <div style={{ width: "36px", height: "36px", borderRadius: "50%", backgroundColor: darkMode ? "#334155" : "#e2e8f0", color: theme.textPrimary, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "700", fontSize: "14px" }}>
+              <div style={{ width: "36px", height: "36px", borderRadius: "50%", backgroundColor: theme.hoverBg, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: "700" }}>
                 {user?.prenom ? user.prenom.charAt(0).toUpperCase() : "A"}
               </div>
               <div style={{ fontSize: "13px" }}>
-                <strong style={{ display: "block", color: theme.textPrimary, lineHeight: "1.2" }}>
-                  {user?.prenom || "Agent"} {user?.nom || ""}
-                </strong>
-                <span style={{ color: theme.textSecondary, fontSize: "11px" }}>
-                  {user?.type_user || "Gestionnaire DAG/RH"}
-                </span>
+                <strong>{user?.prenom || "Agent"} {user?.nom || ""}</strong>
+                <span style={{ color: theme.textSecondary, fontSize: "11px", display: "block" }}>{user?.type_user || "Gestionnaire"}</span>
               </div>
             </div>
 
             <button onClick={onLogout} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px", color: theme.textSecondary }} title="Déconnexion">
-              <i className="bi bi-box-arrow-right"></i>
+              <i className="bi bi-box-arrow-right" />
             </button>
           </div>
         </header>
 
-        {/* MAIN BODY */}
         <main style={{ padding: "28px", flex: 1, overflowY: "auto" }}>
-          
-          {/* TAB 1: TABLEAU DE BORD */}
           {activeTab === "tableau" && (
             <>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
                 <div>
-                  <h2 style={{ fontSize: "22px", fontWeight: "700", color: theme.textPrimary, margin: "0 0 4px 0" }}>
-                    Bonjour {user?.prenom || "Administrateur"} !
-                  </h2>
-                  <p style={{ fontSize: "13px", color: theme.textSecondary, margin: 0 }}>
-                    Plateforme de gestion et d'archivage des documents administratifs
-                  </p>
-                </div>
-                <div style={{ backgroundColor: theme.cardBg, padding: "8px 14px", borderRadius: "8px", border: `1px solid ${theme.border}`, fontSize: "13px", color: theme.textSecondary, display: "flex", alignItems: "center", gap: "8px" }}>
-                  <i className="bi bi-calendar3"></i> 
-                  {new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                  <h2 style={{ fontSize: "22px", fontWeight: "700", margin: "0 0 4px" }}>Bonjour {user?.prenom || "Administrateur"} !</h2>
+                  <p style={{ fontSize: "13px", color: theme.textSecondary, margin: 0 }}>Plateforme de gestion et d'archivage sécurisée</p>
                 </div>
               </div>
 
-              {/* STATISTIQUES CARTE TOTAL & REPARTITION */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "20px", marginBottom: "24px" }}>
-                <div style={{ backgroundColor: theme.cardBg, padding: "20px", borderRadius: "12px", border: `1px solid ${theme.border}`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-                    <span style={{ fontSize: "13px", fontWeight: "600", color: theme.textSecondary }}>Total Documents Archivés</span>
-                    <div style={{ backgroundColor: "rgba(59, 130, 246, 0.1)", color: "#3b82f6", width: "40px", height: "40px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px" }}>
-                      <i className="bi bi-files"></i>
-                    </div>
-                  </div>
-                  <h3 style={{ margin: 0, fontSize: "28px", fontWeight: "800", color: theme.textPrimary }}>{allDocuments.length}</h3>
-                  <p style={{ margin: "6px 0 0 0", fontSize: "12px", color: theme.textSecondary }}>Documents répertoriés dans le système</p>
-                </div>
-
-                <div style={{ backgroundColor: theme.cardBg, padding: "18px 20px", borderRadius: "12px", border: `1px solid ${theme.border}`, boxShadow: "0 2px 5px rgba(0,0,0,0.03)", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                  <h4 style={{ margin: "0 0 14px 0", fontSize: "12px", fontWeight: "700", color: theme.textSecondary, textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    Répartition par Pôle
-                  </h4>
-                  {renderPieChart()}
-                </div>
-              </div>
-
-              {/* CATEGORIES SELECTIONNABLES */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "24px" }}>
-                {CATEGORIES.map((cat) => {
-                  const count = getCategoryCount(cat.id);
-                  const isSelected = selectedCategory === cat.id;
-
-                  return (
-                    <div
-                      key={cat.id}
-                      onClick={() => handleCategoryClick(cat.id)}
-                      style={{
-                        cursor: "pointer",
-                        backgroundColor: theme.cardBg,
-                        padding: "16px",
-                        borderRadius: "12px",
-                        border: isSelected ? `2px solid ${cat.color}` : `1px solid ${theme.border}`,
-                        boxShadow: "0 2px 5px rgba(0,0,0,0.03)",
-                        transition: "all 0.2s"
-                      }}
-                    >
-                      <div style={{ backgroundColor: darkMode ? cat.darkBg : cat.bg, color: cat.color, width: "38px", height: "38px", borderRadius: "10px", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "12px", fontSize: "18px" }}>
-                        <i className={`bi ${cat.icon}`}></i>
-                      </div>
-                      <h3 style={{ margin: 0, fontSize: "14px", fontWeight: "700", color: theme.textPrimary }}>
-                        {cat.id}
-                      </h3>
-                      <span style={{ fontSize: "12px", color: theme.textSecondary, fontWeight: "600" }}>
-                        {count} {count > 1 ? "documents" : "document"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* BARRE DE RECHERCHE */}
-              <div
-                style={{
-                  backgroundColor: theme.cardBg,
-                  borderRadius: "12px",
-                  border: `1px solid ${theme.border}`,
-                  padding: "16px",
-                  marginBottom: "24px",
-                  boxShadow: "0 2px 5px rgba(0,0,0,0.03)"
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    backgroundColor: theme.inputBg,
-                    border: `1px solid ${theme.border}`,
-                    borderRadius: "10px",
-                    padding: "5px 14px"
-                  }}
-                >
-                  <i className="bi bi-search" style={{ color: theme.textSecondary, fontSize: "16px", marginRight: "10px" }}></i>
-
-                  <input
-                    type="text"
-                    placeholder="Rechercher par référence, titre, catégorie, année, format..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    style={{
-                      width: "100%",
-                      border: "none",
-                      outline: "none",
-                      fontSize: "13px",
-                      color: theme.textPrimary,
-                      backgroundColor: "transparent",
-                      padding: "9px 0"
-                    }}
-                  />
-
-                  {searchQuery && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchQuery("")}
-                      title="Effacer"
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        color: theme.textSecondary,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: "4px"
-                      }}
-                    >
-                      <i className="bi bi-x-lg"></i>
-                    </button>
-                  )}
-                </div>
-
-                {searchQuery.trim() && (
-                  <div style={{ marginTop: "8px", fontSize: "12px", color: theme.accent, fontWeight: "600" }}>
-                    {displayedDocuments.length} résultat{displayedDocuments.length > 1 ? "s" : ""} trouvé{displayedDocuments.length > 1 ? "s" : ""}
-                  </div>
-                )}
-              </div>
-
-              {/* TABLEAU DES DOCUMENTS */}
-              <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "20px", boxShadow: "0 2px 5px rgba(0,0,0,0.03)" }}>
+              {/* LISTE DES DOCUMENTS AVEC BOUTON ÉTOILE (EST_IMPORTANT) */}
+              <div style={cardStyle}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-                  <h3 style={{ fontSize: "15px", fontWeight: "700", color: theme.textPrimary, margin: 0 }}>
-                    {searchQuery.trim()
-                      ? `Résultats de recherche (${displayedDocuments.length})`
-                      : selectedCategory
-                        ? `Filtre Catégorie : ${selectedCategory}`
-                        : "Liste des Documents Administratifs"}
-                  </h3>
-
-                  <button onClick={() => { fetchAllDocuments(); fetchDocuments(selectedCategory); }} style={{ backgroundColor: theme.hoverBg, color: theme.textPrimary, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "6px 12px", fontSize: "12px", fontWeight: "600", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
-                    <i className="bi bi-arrow-clockwise"></i> Actualiser
-                  </button>
+                  <h3 style={{ fontSize: "15px", fontWeight: "700", margin: 0 }}>Documents Administratifs</h3>
                 </div>
 
                 {loading ? (
-                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Chargement des enregistrements...</p>
+                  <p style={{ textAlign: "center", color: theme.textSecondary, padding: "20px" }}>Chargement...</p>
                 ) : displayedDocuments.length === 0 ? (
-                  <p style={{ color: theme.textSecondary, fontSize: "13px", padding: "20px 0", textAlign: "center" }}>
-                    Aucun document ne correspond à vos critères.
-                  </p>
+                  <p style={{ textAlign: "center", color: theme.textSecondary, padding: "20px" }}>Aucun document trouvé.</p>
                 ) : (
                   <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
+                    <table style={tableStyle}>
                       <thead>
-                        <tr style={{ backgroundColor: theme.bg, borderBottom: `1px solid ${theme.border}`, color: theme.textSecondary }}>
-                          <th style={{ padding: "12px 14px" }}>Référence</th>
-                          <th style={{ padding: "12px 14px" }}>Titre du document</th>
-                          <th style={{ padding: "12px 14px" }}>Catégorie</th>
-                          <th style={{ padding: "12px 14px" }}>Année</th>
-                          <th style={{ padding: "12px 14px", textAlign: "right" }}>Actions</th>
+                        <tr>
+                          <th style={{ ...thStyle, width: "50px", textAlign: "center" }}>Favori</th>
+                          <th style={thStyle}>Référence</th>
+                          <th style={thStyle}>Titre</th>
+                          <th style={thStyle}>Catégorie</th>
+                          <th style={thStyle}>Année</th>
+                          <th style={{ ...thStyle, textAlign: "right" }}>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {displayedDocuments.map((doc) => (
-                          <tr key={doc.num_ref} style={{ borderBottom: `1px solid ${theme.border}` }}>
-                            <td style={{ padding: "12px 14px", fontWeight: "700", color: theme.textPrimary }}>{doc.num_ref}</td>
-                            <td style={{ padding: "12px 14px", color: theme.textPrimary }}>{doc.title}</td>
-                            <td style={{ padding: "12px 14px" }}>
-                              <span style={{ padding: "4px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: "600", backgroundColor: theme.hoverBg, color: theme.textPrimary, border: `1px solid ${theme.border}` }}>
+                          <tr key={doc.num_ref}>
+                            <td style={{ ...tdStyle, textAlign: "center" }}>
+                              <button
+                                onClick={(e) => handleToggleImportant(doc.num_ref, e)}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  fontSize: "18px",
+                                  color: doc.est_important ? "#f59e0b" : "#cbd5e1",
+                                  padding: "4px",
+                                  transition: "color 0.2s"
+                                }}
+                                title={doc.est_important ? "Retirer des favoris" : "Marquer comme important"}
+                              >
+                                <i className={`bi bi-star${doc.est_important ? "-fill" : ""}`} />
+                              </button>
+                            </td>
+                            <td style={{ ...tdStyle, fontWeight: "700" }}>{doc.num_ref}</td>
+                            <td style={tdStyle}>{doc.title}</td>
+                            <td style={tdStyle}>
+                              <span style={{ padding: "4px 8px", borderRadius: "12px", backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}` }}>
                                 {doc.cat}
                               </span>
                             </td>
-                            <td style={{ padding: "12px 14px", textTransform: "uppercase", fontWeight: "600", color: theme.textSecondary }}>
-                              {doc.annee_redac || "PDF"}
-                            </td>
-                            <td style={{ padding: "12px 14px", textAlign: "right" }}>
-                              <div style={{ display: "inline-flex", gap: "6px" }}>
-                                <button 
-                                  onClick={() => handleDownload(doc)} 
-                                  disabled={downloadingRef === doc.num_ref}
-                                  style={{ backgroundColor: darkMode ? "rgba(16, 185, 129, 0.15)" : "#e6f4ea", border: "1px solid #a7f3d0", borderRadius: "6px", padding: "5px 9px", cursor: "pointer", color: "#10b981" }} 
-                                  title="Télécharger"
-                                >
-                                  <i className={`bi ${downloadingRef === doc.num_ref ? "bi-hourglass-split" : "bi-download"}`}></i>
-                                </button>
-                                
-                                <button onClick={() => handleOpenPreview(doc)} style={{ backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: theme.textPrimary }} title="Aperçu">
-                                  <i className="bi bi-eye"></i>
-                                </button>
-                           
-                              </div>
+                            <td style={tdStyle}>{doc.annee_redac || "-"}</td>
+                            <td style={{ ...tdStyle, textAlign: "right", whiteSpace: "nowrap" }}>
+                              <button onClick={() => handleDownload(doc)} style={{ ...buttonStyle, color: "#10b981", border: "1px solid #a7f3d0", marginRight: "5px" }} title="Télécharger">
+                                <i className="bi bi-download" />
+                              </button>
+                              <button onClick={() => handleOpenPreview(doc)} style={iconButtonStyle} title="Aperçu">
+                                <i className="bi bi-eye" />
+                              </button>
                             </td>
                           </tr>
                         ))}
@@ -797,152 +715,213 @@ export default function Dashboard({ user: initialUser, onLogout }) {
             </>
           )}
 
-          {/* TAB 2: MES DOCUMENTS */}
+          {/* ONGLET : MES DOCUMENTS */}
           {activeTab === "documents" && (
             <div>
-              <div style={{ marginBottom: "20px" }}>
-                <h2 style={{ fontSize: "20px", fontWeight: "700", color: theme.textPrimary, margin: "0 0 4px 0" }}>
-                  Mes Documents Importés
-                </h2>
-                <p style={{ fontSize: "13px", color: theme.textSecondary, margin: 0 }}>
-                  Liste des documents que vous avez enregistrés dans le système
-                </p>
-              </div>
-
-              <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "20px", boxShadow: "0 2px 5px rgba(0,0,0,0.03)" }}>
-                {loading ? (
-                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Chargement de vos documents...</p>
-                ) : documents.length === 0 ? (
-                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Vous n'avez encore créé aucun document.</p>
+              <h2 style={{ fontSize: "20px", fontWeight: "700", marginBottom: "20px" }}>Mes Documents Importés</h2>
+              <div style={cardStyle}>
+                {documents.length === 0 ? (
+                  <p style={{ textAlign: "center", color: theme.textSecondary }}>Aucun document créé.</p>
                 ) : (
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
-                      <thead>
-                        <tr style={{ backgroundColor: theme.bg, borderBottom: `1px solid ${theme.border}`, color: theme.textSecondary }}>
-                          <th style={{ padding: "12px 14px" }}>Référence</th>
-                          <th style={{ padding: "12px 14px" }}>Titre</th>
-                          <th style={{ padding: "12px 14px" }}>Catégorie</th>
-                          <th style={{ padding: "12px 14px" }}>Année</th>
-                          <th style={{ padding: "12px 14px", textAlign: "right" }}>Actions</th>
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...thStyle, width: "50px", textAlign: "center" }}>Favori</th>
+                        <th style={thStyle}>Référence</th>
+                        <th style={thStyle}>Titre</th>
+                        <th style={thStyle}>Catégorie</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {documents.map((doc) => (
+                        <tr key={doc.num_ref}>
+                          <td style={{ ...tdStyle, textAlign: "center" }}>
+                            <button
+                              onClick={(e) => handleToggleImportant(doc.num_ref, e)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                fontSize: "18px",
+                                color: doc.est_important ? "#f59e0b" : "#cbd5e1",
+                                padding: "4px"
+                              }}
+                              title={doc.est_important ? "Retirer des favoris" : "Marquer comme important"}
+                            >
+                              <i className={`bi bi-star${doc.est_important ? "-fill" : ""}`} />
+                            </button>
+                          </td>
+                          <td style={{ ...tdStyle, fontWeight: "700" }}>{doc.num_ref}</td>
+                          <td style={tdStyle}>{doc.title}</td>
+                          <td style={tdStyle}>{doc.cat}</td>
+                          <td style={{ ...tdStyle, textAlign: "right" }}>
+                            <button onClick={() => handleDownload(doc)} style={{ ...buttonStyle, color: "#10b981", marginRight: "4px" }}><i className="bi bi-download" /></button>
+                            <button onClick={() => handleOpenPreview(doc)} style={{ ...iconButtonStyle, marginRight: "4px" }}><i className="bi bi-eye" /></button>
+                            <button onClick={() => setDocToEdit(doc)} style={{ ...iconButtonStyle, marginRight: "4px" }}><i className="bi bi-pencil" /></button>
+                            <button onClick={() => setDocToDelete(doc)} style={{ ...buttonStyle, color: "#ef4444", backgroundColor: "#fef2f2" }}><i className="bi bi-trash" /></button>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody>
-                        {documents.map((doc) => (
-                          <tr key={doc.num_ref} style={{ borderBottom: `1px solid ${theme.border}` }}>
-                            <td style={{ padding: "12px 14px", fontWeight: "700", color: theme.textPrimary }}>{doc.num_ref}</td>
-                            <td style={{ padding: "12px 14px", color: theme.textPrimary }}>{doc.title}</td>
-                            <td style={{ padding: "12px 14px" }}>
-                              <span style={{ padding: "4px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: "600", backgroundColor: theme.hoverBg, color: theme.textPrimary, border: `1px solid ${theme.border}` }}>
-                                {doc.cat}
-                              </span>
-                            </td>
-                            <td style={{ padding: "12px 14px", color: theme.textSecondary, fontWeight: "600" }}>{doc.annee_redac || "-"}</td>
-                            <td style={{ padding: "12px 14px", textAlign: "right" }}>
-                              <div style={{ display: "inline-flex", gap: "6px" }}>
-                                <button 
-                                  onClick={() => handleDownload(doc)} 
-                                  disabled={downloadingRef === doc.num_ref}
-                                  style={{ backgroundColor: darkMode ? "rgba(16, 185, 129, 0.15)" : "#e6f4ea", border: "1px solid #a7f3d0", borderRadius: "6px", padding: "5px 9px", cursor: "pointer", color: "#10b981" }} 
-                                  title="Télécharger"
-                                >
-                                  <i className={`bi ${downloadingRef === doc.num_ref ? "bi-hourglass-split" : "bi-download"}`}></i>
-                                </button>
-
-                                <button onClick={() => handleOpenPreview(doc)} style={{ backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: theme.textPrimary }} title="Aperçu">
-                                  <i className="bi bi-eye"></i>
-                                </button>
-                                <button onClick={() => setDocToEdit(doc)} style={{ backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: theme.textPrimary }} title="Modifier">
-                                  <i className="bi bi-pencil"></i>
-                                </button>
-                                <button onClick={() => setDocToDelete(doc)} style={{ backgroundColor: darkMode ? "rgba(239, 68, 68, 0.2)" : "#fef2f2", border: "1px solid #fca5a5", borderRadius: "6px", padding: "5px 8px", cursor: "pointer", color: "#ef4444" }} title="Supprimer">
-                                  <i className="bi bi-trash"></i>
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                      ))}
+                    </tbody>
+                  </table>
                 )}
               </div>
             </div>
           )}
 
-          {/* TAB 3: CORBEILLE */}
+          {/* ONGLET : FAVORIS / IMPORTANTS */}
+          {activeTab === "favoris" && (
+            <div>
+              <h2 style={{ fontSize: "20px", fontWeight: "700", marginBottom: "20px" }}>Documents Favoris & Importants</h2>
+              <div style={cardStyle}>
+                {favoritesLoading ? (
+                  <p style={{ textAlign: "center", color: theme.textSecondary }}>Chargement des favoris...</p>
+                ) : favoriteDocuments.length === 0 ? (
+                  <p style={{ textAlign: "center", color: theme.textSecondary }}>Aucun document marqué comme favori.</p>
+                ) : (
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...thStyle, width: "50px", textAlign: "center" }}>Favori</th>
+                        <th style={thStyle}>Référence</th>
+                        <th style={thStyle}>Titre</th>
+                        <th style={thStyle}>Catégorie</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {favoriteDocuments.map((doc) => (
+                        <tr key={doc.num_ref}>
+                          <td style={{ ...tdStyle, textAlign: "center" }}>
+                            <button
+                              onClick={(e) => handleToggleImportant(doc.num_ref, e)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                fontSize: "18px",
+                                color: "#f59e0b",
+                                padding: "4px"
+                              }}
+                              title="Retirer des favoris"
+                            >
+                              <i className="bi bi-star-fill" />
+                            </button>
+                          </td>
+                          <td style={{ ...tdStyle, fontWeight: "700" }}>{doc.num_ref}</td>
+                          <td style={tdStyle}>{doc.title}</td>
+                          <td style={tdStyle}>{doc.cat}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", whiteSpace: "nowrap" }}>
+                            <button onClick={() => handleDownload(doc)} style={{ ...buttonStyle, color: "#10b981", border: "1px solid #a7f3d0", marginRight: "5px" }} title="Télécharger">
+                              <i className="bi bi-download" />
+                            </button>
+                            <button onClick={() => handleOpenPreview(doc)} style={iconButtonStyle} title="Aperçu">
+                              <i className="bi bi-eye" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ONGLET : HISTORIQUE DE CONSULTATION */}
+          {activeTab === "historique" && (
+            <div>
+              <h2 style={{ fontSize: "20px", fontWeight: "700", marginBottom: "20px" }}>Historique de Consultation</h2>
+              <div style={cardStyle}>
+                {historyLoading ? (
+                  <p style={{ textAlign: "center", color: theme.textSecondary }}>Chargement de l'historique...</p>
+                ) : historyDocuments.length === 0 ? (
+                  <p style={{ textAlign: "center", color: theme.textSecondary }}>Aucun document consulté récemment.</p>
+                ) : (
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...thStyle, width: "50px", textAlign: "center" }}>Favori</th>
+                        <th style={thStyle}>Référence</th>
+                        <th style={thStyle}>Titre</th>
+                        <th style={thStyle}>Catégorie</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyDocuments.map((doc) => (
+                        <tr key={doc.num_ref}>
+                          <td style={{ ...tdStyle, textAlign: "center" }}>
+                            <button
+                              onClick={(e) => handleToggleImportant(doc.num_ref, e)}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                fontSize: "18px",
+                                color: doc.est_important ? "#f59e0b" : "#cbd5e1",
+                                padding: "4px"
+                              }}
+                            >
+                              <i className={`bi bi-star${doc.est_important ? "-fill" : ""}`} />
+                            </button>
+                          </td>
+                          <td style={{ ...tdStyle, fontWeight: "700" }}>{doc.num_ref}</td>
+                          <td style={tdStyle}>{doc.title}</td>
+                          <td style={tdStyle}>{doc.cat}</td>
+                          <td style={{ ...tdStyle, textAlign: "right" }}>
+                            <button onClick={() => handleOpenPreview(doc)} style={iconButtonStyle}>
+                              <i className="bi bi-eye" /> Consulter à nouveau
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ONGLET : CORBEILLE */}
           {activeTab === "corbeille" && (
             <div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-                <div>
-                  <h2 style={{ fontSize: "20px", fontWeight: "700", color: theme.textPrimary, margin: "0 0 4px 0" }}>
-                    Corbeille
-                  </h2>
-                  <p style={{ fontSize: "13px", color: theme.textSecondary, margin: 0 }}>
-                    Les documents supprimés restent disponibles pendant 30 jours avant leur suppression définitive.
-                  </p>
-                </div>
-                <button
-                  onClick={fetchTrashDocuments}
-                  style={{ backgroundColor: theme.hoverBg, color: theme.textPrimary, border: `1px solid ${theme.border}`, borderRadius: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: "600", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
-                >
-                  <i className="bi bi-arrow-clockwise"></i> Actualiser
-                </button>
-              </div>
-
-              <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "20px", boxShadow: "0 2px 5px rgba(0,0,0,0.03)" }}>
-                {trashLoading ? (
-                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Vérification de la corbeille...</p>
-                ) : trashDocuments.length === 0 ? (
-                  <p style={{ color: theme.textSecondary, fontSize: "13px", textAlign: "center", padding: "20px" }}>Aucun document dans la corbeille.</p>
+              <h2 style={{ fontSize: "20px", fontWeight: "700", marginBottom: "20px" }}>Corbeille</h2>
+              <div style={cardStyle}>
+                {trashDocuments.length === 0 ? (
+                  <p style={{ textAlign: "center", color: theme.textSecondary }}>La corbeille est vide.</p>
                 ) : (
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", textAlign: "left" }}>
-                      <thead>
-                        <tr style={{ backgroundColor: theme.bg, borderBottom: `1px solid ${theme.border}`, color: theme.textSecondary }}>
-                          <th style={{ padding: "12px 14px" }}>Référence</th>
-                          <th style={{ padding: "12px 14px" }}>Titre</th>
-                          <th style={{ padding: "12px 14px" }}>Catégorie</th>
-                          <th style={{ padding: "12px 14px" }}>Jours restants</th>
-                          <th style={{ padding: "12px 14px", textAlign: "right" }}>Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {trashDocuments.map((doc) => {
-                          const daysLeft = getDaysRemaining(doc.deleted_at || doc.updated_at);
-                          return (
-                            <tr key={doc.num_ref} style={{ borderBottom: `1px solid ${theme.border}` }}>
-                              <td style={{ padding: "12px 14px", fontWeight: "700", color: theme.textPrimary }}>{doc.num_ref}</td>
-                              <td style={{ padding: "12px 14px", color: theme.textPrimary }}>{doc.title}</td>
-                              <td style={{ padding: "12px 14px" }}>
-                                <span style={{ padding: "4px 8px", borderRadius: "12px", fontSize: "11px", fontWeight: "600", backgroundColor: theme.hoverBg, color: theme.textPrimary, border: `1px solid ${theme.border}` }}>
-                                  {doc.cat}
-                                </span>
-                              </td>
-                              <td style={{ padding: "12px 14px" }}>
-                                <span style={{ fontSize: "12px", fontWeight: "600", color: daysLeft <= 5 ? "#ef4444" : "#f59e0b", backgroundColor: darkMode ? "rgba(245, 158, 11, 0.1)" : "#fffbeb", padding: "4px 8px", borderRadius: "6px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                                  <i className="bi bi-clock-history"></i> {daysLeft} jour{daysLeft > 1 ? "s" : ""}
-                                </span>
-                              </td>
-                              <td style={{ padding: "12px 14px", textAlign: "right" }}>
-                                <button
-                                  onClick={() => handleRestore(doc.num_ref)}
-                                  style={{ backgroundColor: darkMode ? "rgba(16, 185, 129, 0.2)" : "#f0fdf4", border: "1px solid #10b981", color: "#10b981", borderRadius: "6px", padding: "6px 12px", fontSize: "12px", fontWeight: "600", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "4px" }}
-                                >
-                                  <i className="bi bi-arrow-counterclockwise"></i> Restaurer
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        <th style={thStyle}>Référence</th>
+                        <th style={thStyle}>Titre</th>
+                        <th style={thStyle}>Jours restants</th>
+                        <th style={{ ...thStyle, textAlign: "right" }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {trashDocuments.map((doc) => {
+                        const daysLeft = getDaysRemaining(doc.date_suppression);
+                        return (
+                          <tr key={doc.num_ref}>
+                            <td style={tdStyle}>{doc.num_ref}</td>
+                            <td style={tdStyle}>{doc.title}</td>
+                            <td style={tdStyle}>{daysLeft !== null ? `${daysLeft} jours` : "-"}</td>
+                            <td style={{ ...tdStyle, textAlign: "right" }}>
+                              <button onClick={() => handleRestore(doc.num_ref)} style={{ ...buttonStyle, color: "#10b981" }}>Restaurer</button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 )}
               </div>
             </div>
           )}
 
-          {/* TAB 4: PARAMÈTRES */}
           {activeTab === "parametres" && (
             <Parametres
               user={user}
@@ -953,73 +932,72 @@ export default function Dashboard({ user: initialUser, onLogout }) {
               theme={theme}
             />
           )}
-
         </main>
       </div>
 
-      {/* MODALE DE PRÉVISUALISATION */}
+      {/* MODALE APERÇU + ANALYSE IA */}
       {previewDoc && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(15, 23, 42, 0.7)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1100 }}>
-          <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", width: "90%", height: "85%", maxWidth: "900px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ padding: "16px", backgroundColor: theme.sidebarBg, color: theme.textPrimary, borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h3 style={{ margin: 0, fontSize: "15px", fontWeight: "700" }}>
-                Aperçu : {previewDoc.title} ({previewDoc.num_ref})
-              </h3>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button 
-                  onClick={() => handleDownload(previewDoc)} 
-                  style={{ backgroundColor: "#10b981", color: "#ffffff", border: "none", borderRadius: "6px", padding: "6px 12px", fontSize: "12px", cursor: "pointer", fontWeight: "600", display: "flex", alignItems: "center", gap: "4px" }}
-                >
-                  <i className="bi bi-download"></i> Télécharger
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(15,23,42,0.7)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1100, padding: "15px" }}>
+          <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", width: "92%", height: "88%", maxWidth: "1100px", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ padding: "14px 20px", backgroundColor: theme.sidebarBg, borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ margin: 0, fontSize: "15px", fontWeight: "700" }}>Aperçu : {previewDoc.title} ({previewDoc.num_ref})</h3>
+              <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                <button type="button" onClick={handleRunAiAnalysis} disabled={aiAnalysisLoading} style={{ ...buttonStyle, backgroundColor: "#6366f1", color: "#ffffff", border: "none" }}>
+                  <i className="bi bi-stars" /> {aiAnalysisLoading ? "Analyse IA..." : "Analyser avec l'IA"}
                 </button>
-                <button onClick={handleClosePreview} style={{ background: "none", border: "none", color: theme.textPrimary, cursor: "pointer", fontSize: "18px" }}>
-                  <i className="bi bi-x-lg"></i>
+                <button onClick={() => handleDownload(previewDoc)} style={{ ...buttonStyle, backgroundColor: "#10b981", color: "#ffffff", border: "none" }}>
+                  <i className="bi bi-download" /> Télécharger
                 </button>
+                <button onClick={handleClosePreview} style={{ background: "none", border: "none", color: theme.textPrimary, cursor: "pointer", fontSize: "18px" }}><i className="bi bi-x-lg" /></button>
               </div>
             </div>
-            <div style={{ flex: 1, backgroundColor: theme.bg, display: "flex", justifyContent: "center", alignItems: "center" }}>
-              {previewLoading ? (
-                <p style={{ color: theme.textPrimary, fontWeight: "600" }}>Chargement du document...</p>
-              ) : previewUrl ? (
-                <iframe src={previewUrl} title="Aperçu Document" style={{ width: "100%", height: "100%", border: "none" }} />
-              ) : (
-                <p style={{ color: "#ef4444" }}>Impossible d'afficher le document.</p>
+
+            <div style={{ flex: 1, minHeight: 0, display: "flex", position: "relative", backgroundColor: theme.bg }}>
+              <div style={{ flex: 1, height: "100%", display: "flex", justifyContent: "center", alignItems: "center" }}>
+                {previewLoading ? <p>Chargement...</p> : previewUrl ? <iframe src={previewUrl} title="Aperçu" style={{ width: "100%", height: "100%", border: "none" }} /> : <p>Erreur d'affichage</p>}
+              </div>
+
+              {aiAnalysisOpen && (
+                <div style={{ width: "420px", maxWidth: "100%", backgroundColor: theme.cardBg, borderLeft: `1px solid ${theme.border}`, display: "flex", flexDirection: "column", zIndex: 10 }}>
+                  <div style={{ padding: "14px 16px", borderBottom: `1px solid ${theme.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <strong>Analyse Intelligente IA</strong>
+                    <button onClick={() => setAiAnalysisOpen(false)} style={{ background: "none", border: "none", cursor: "pointer" }}><i className="bi bi-x-lg" /></button>
+                  </div>
+                  <div style={{ flex: 1, padding: "16px", overflowY: "auto", fontSize: "13px" }}>
+                    {aiAnalysisLoading && <p>Gemini analyse le document...</p>}
+                    {aiAnalysisError && <p style={{ color: "#ef4444" }}>{aiAnalysisError}</p>}
+                    {!aiAnalysisLoading && !aiAnalysisError && aiAnalysisResult && (
+                      <div className="assistant-markdown">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiAnalysisResult}</ReactMarkdown>
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* MODALE DE SUPPRESSION (SOFT-DELETE) */}
+      {/* MODALE SUPPRESSION */}
       {docToDelete && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(15, 23, 42, 0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1050 }}>
-          <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", padding: "24px", maxWidth: "400px", width: "90%", boxShadow: "0 10px 25px rgba(0,0,0,0.2)" }}>
-            <h3 style={{ margin: "0 0 12px 0", color: "#ef4444", fontSize: "16px" }}>Mettre en corbeille</h3>
-            <p style={{ fontSize: "13px", color: theme.textPrimary, marginBottom: "20px" }}>
-              Voulez-vous déplacer le document <strong>{docToDelete.title}</strong> vers la corbeille ?
-            </p>
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(15,23,42,0.6)", display: "flex", justifyContent: "center", alignItems: "center", zIndex: 1200 }}>
+          <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", padding: "24px", maxWidth: "420px", width: "100%" }}>
+            <h3 style={{ color: "#ef4444", fontSize: "16px" }}>Mettre en corbeille</h3>
+            <p style={{ fontSize: "13px" }}>Voulez-vous déplacer <strong>{docToDelete.title}</strong> vers la corbeille ?</p>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px" }}>
-              <button onClick={() => setDocToDelete(null)} style={{ backgroundColor: theme.hoverBg, border: `1px solid ${theme.border}`, color: theme.textPrimary, padding: "8px 14px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "13px" }}>
-                Annuler
-              </button>
-              <button onClick={confirmDelete} disabled={isDeleting} style={{ backgroundColor: "#ef4444", border: "none", color: "#ffffff", padding: "8px 14px", borderRadius: "6px", cursor: "pointer", fontWeight: "600", fontSize: "13px" }}>
-                {isDeleting ? "Déplacement..." : "Supprimer"}
-              </button>
+              <button onClick={() => setDocToDelete(null)} style={buttonStyle}>Annuler</button>
+              <button onClick={confirmDelete} style={{ ...buttonStyle, backgroundColor: "#ef4444", color: "#fff" }}>Confirmer</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODALES UPLOAD & EDIT */}
       {isModalOpen && (
         <DocumentUploadModal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
-          onSuccess={async () => {
-            setIsModalOpen(false);
-            await fetchAllDocuments();
-            await fetchDocuments(selectedCategory);
-          }}
+          onSuccess={async () => { setIsModalOpen(false); await fetchAllDocuments(); await fetchDocuments(selectedCategory); await fetchFavoriteDocuments(); }}
           getAuthHeaders={getAuthHeaders}
         />
       )}
@@ -1028,11 +1006,7 @@ export default function Dashboard({ user: initialUser, onLogout }) {
         <DocumentEditModal
           doc={docToEdit}
           onClose={() => setDocToEdit(null)}
-          onSuccess={async () => {
-            setDocToEdit(null);
-            await fetchAllDocuments();
-            await fetchDocuments(selectedCategory);
-          }}
+          onSuccess={async () => { setDocToEdit(null); await fetchAllDocuments(); await fetchDocuments(selectedCategory); await fetchFavoriteDocuments(); }}
           getAuthHeaders={getAuthHeaders}
         />
       )}

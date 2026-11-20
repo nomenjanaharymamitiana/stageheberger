@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Date, DateTime, ForeignKey,LargeBinary
+from sqlalchemy import Column, String, Date, DateTime, ForeignKey, LargeBinary, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -19,8 +19,16 @@ class Document(Base):
 
     # Clé étrangère pointant directement sur la table utilisateur
     im_dag_rh = Column(String(50), ForeignKey("utilisateur.im"), nullable=True)
-     # Nouveau : fichier stocké directement dans PostgreSQL
+    
+    # Fichier stocké directement dans PostgreSQL
     file_data = Column(LargeBinary, nullable=True)
+
+    # Empreinte SHA-256 du contenu du fichier
+    file_hash = Column(String(64), nullable=True, index=True)
+
+    # Nouveau : Indicateur pour marquer un document comme important ou favori
+    est_important = Column(Boolean, nullable=False, default=False)
+
     # Relations
     dag_rh_rel = relationship("Utilisateur", back_populates="documents")
     journals = relationship("Journal", back_populates="document")

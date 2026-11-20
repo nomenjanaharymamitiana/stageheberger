@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from database import get_db
 from crud import demande as crud_demande
 from schemas import demande as schemas_demande
+# Importez votre dépendance d'authentification (selon votre nommage, ex: get_current_user ou get_user_im)
+from routes.auth import get_current_user # Ajustez l'importation selon votre structure
 
 
 router = APIRouter(
@@ -45,7 +47,8 @@ def creer_demande(
     response_model=List[schemas_demande.DemandeOut]
 )
 def get_pending_requests(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
 ):
     return crud_demande.get_pending_demandes(db)
 
@@ -56,9 +59,13 @@ def get_pending_requests(
 )
 def valider_demande(
     id_dmd: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
 ):
-    demande = crud_demande.valider_demande_mdp(db, id_dmd)
+    # Récupérer l'IM de l'administrateur connecté (RSI)
+    im_admin = getattr(current_user, "im", str(current_user))
+    
+    demande = crud_demande.valider_demande_mdp(db, id_dmd, im_admin=im_admin)
 
     if not demande:
         raise HTTPException(
@@ -67,6 +74,8 @@ def valider_demande(
         )
 
     return demande
+
+
 @router.get(
     "/statut/{im_user}",
     response_model=schemas_demande.DemandeOut
@@ -85,15 +94,20 @@ def get_statut_demande(
 
     return demande
 
+
 @router.put(
     "/{id_dmd}/rejeter",
     response_model=schemas_demande.DemandeOut
 )
 def rejeter_demande(
     id_dmd: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
 ):
-    demande = crud_demande.rejeter_demande_mdp(db, id_dmd)
+    # Récupérer l'IM de l'administrateur connecté (RSI)
+    im_admin = getattr(current_user, "im", str(current_user))
+
+    demande = crud_demande.rejeter_demande_mdp(db, id_dmd, im_admin=im_admin)
 
     if not demande:
         raise HTTPException(

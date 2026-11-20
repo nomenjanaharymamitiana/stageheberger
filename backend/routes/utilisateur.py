@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Header, Query
+from datetime import date
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import Optional, List
 
 from database import get_db
 from crud import utilisateur as crud_user
 from schemas import utilisateur as schemas_user
+from routes.auth import get_current_user  # 👈 Importation de la fonction de décodage JWT
 
 router = APIRouter(
     prefix="/api/v1/users",
@@ -13,27 +15,22 @@ router = APIRouter(
 
 
 # ============================================================
-# RÉCUPÉRATION DU MATRICULE DE L'UTILISATEUR CONNECTÉ
+# RÉCUPÉRATION DU MATRICULE DE L'UTILISATEUR CONNECTÉ VIA LE JWT
 # ============================================================
 
 def get_current_user_im(
-    authorization: Optional[str] = Header(None, alias="Authorization"),
-    x_user_im: Optional[str] = Header(None, alias="X-User-IM")
+    current_user = Depends(get_current_user)
 ) -> str:
-
-    user_im = x_user_im or (
-        authorization.replace("Bearer ", "")
-        if authorization
-        else None
-    )
-
-    if not user_im:
+    """
+    Décode le JWT via get_current_user et retourne 
+    uniquement le matricule (im) court de l'utilisateur.
+    """
+    if not current_user or not hasattr(current_user, "im"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Identifiant (IM) manquant dans les en-têtes"
+            detail="Impossible d'identifier l'utilisateur connecté"
         )
-
-    return user_im
+    return current_user.im
 
 
 # ============================================================
@@ -53,7 +50,8 @@ def update_profile(
     updated_user = crud_user.update_utilisateur_info(
         db,
         current_im,
-        user_data
+        user_data,
+        im_admin=current_im
     )
 
     if not updated_user:
@@ -197,7 +195,8 @@ def get_users(
 )
 def create_user(
     user_data: schemas_user.UtilisateurCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_im: str = Depends(get_current_user_im)
 ):
 
     if crud_user.get_utilisateur_by_im(
@@ -213,7 +212,8 @@ def create_user(
 
         return crud_user.create_utilisateur(
             db,
-            user_data
+            user_data,
+            im_admin=current_im
         )
 
     except ValueError as e:
@@ -262,13 +262,15 @@ def get_user_by_im(
 def update_user_by_im(
     im: str,
     user_data: schemas_user.UtilisateurUpdate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_im: str = Depends(get_current_user_im)
 ):
 
     updated = crud_user.update_utilisateur_info(
         db,
         im,
-        user_data
+        user_data,
+        im_admin=current_im
     )
 
     if not updated:
@@ -287,12 +289,14 @@ def update_user_by_im(
 @router.delete("/{im}")
 def delete_user(
     im: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_im: str = Depends(get_current_user_im)
 ):
 
     success = crud_user.delete_utilisateur(
         db,
-        im
+        im,
+        im_admin=current_im
     )
 
     if not success:

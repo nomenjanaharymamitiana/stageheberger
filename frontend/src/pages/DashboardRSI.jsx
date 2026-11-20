@@ -503,7 +503,7 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
     setShowUserModal(true);
   };
 
-  // ---------------- API JOURNAL ----------------
+  // ---------------- API JOURNAL & EXPORTATION ----------------
   const fetchJournal = async () => {
     setJournalLoading(true);
     try {
@@ -530,6 +530,47 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
   const handleResetJournalFilters = () => {
     setJournalFilters({ date_action: "", im_user: "", num_ref_doc: "" });
     fetchJournal();
+  };
+
+  // Fonction d'exportation du journal au format CSV
+  const handleExportJournal = () => {
+    if (journals.length === 0) {
+      alert("Aucune donnée à exporter.");
+      return;
+    }
+
+    const headers = ["ID Log", "Date", "Description", "Matricule Agent (IM)", "Document Concerne"];
+    const rows = journals.map(j => [
+      j.id_jour,
+      j.date_action,
+      `"${(j.desc || "").replace(/"/g, '""')}"`,
+      j.im_user,
+      j.num_ref_doc || ""
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `journal_audit_ged_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  // Fonction utilitaire pour attribuer un style / couleur selon l'action
+  const getActionBadgeStyle = (descText = "") => {
+    const text = descText.toLowerCase();
+    if (text.includes("ajout") || text.includes("création") || text.includes("validation") || text.includes("restaur") || text.includes("succès")) {
+      return { bg: "rgba(16, 185, 129, 0.15)", color: "#10b981", border: "#10b981" }; // Vert (Succès / Ajout)
+    }
+    if (text.includes("supprim") || text.includes("rejet") || text.includes("corbeille") || text.includes("erreur")) {
+      return { bg: "rgba(239, 68, 68, 0.15)", color: "#ef4444", border: "#ef4444" }; // Rouge (Suppression / Rejet)
+    }
+    if (text.includes("modif") || text.includes("mise à jour") || text.includes("édit")) {
+      return { bg: "rgba(59, 130, 246, 0.15)", color: "#3b82f6", border: "#3b82f6" }; // Bleu (Modification)
+    }
+    return { bg: "rgba(245, 158, 11, 0.15)", color: "#f59e0b", border: "#f59e0b" }; // Orange (Autres)
   };
 
   useEffect(() => {
@@ -1546,15 +1587,41 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
             </div>
           )}
 
-          {/* TAB 5 : JOURNAL D'ACTIVITÉ */}
+          {/* TAB 5 : JOURNAL D'ACTIVITÉ AVEC COULEURS ET EXPORTATION */}
           {activeTab === "journal" && (
             <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
               <div style={{ backgroundColor: theme.cardBg, borderRadius: "12px", border: `1px solid ${theme.border}`, padding: "20px" }}>
-                <h3 style={{ fontSize: "18px", fontWeight: "700", marginBottom: "16px", color: theme.textPrimary, display: "flex", alignItems: "center", gap: "10px" }}>
-                  <i className="bi bi-journal-text" style={{ color: "#6366f1" }}></i>
-                  Journal des Actions & Événements Système
-                </h3>
+                
+                {/* EN-TÊTE DU JOURNAL + BOUTON D'EXPORTATION */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
+                  <h3 style={{ fontSize: "18px", fontWeight: "700", color: theme.textPrimary, margin: 0, display: "flex", alignItems: "center", gap: "10px" }}>
+                    <i className="bi bi-journal-text" style={{ color: "#6366f1" }}></i>
+                    Journal des Actions & Événements Système
+                  </h3>
 
+                  <button
+                    onClick={handleExportJournal}
+                    style={{
+                      backgroundColor: "#10b981",
+                      color: "#ffffff",
+                      border: "none",
+                      borderRadius: "8px",
+                      padding: "8px 16px",
+                      fontSize: "13px",
+                      fontWeight: "600",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      boxShadow: "0 2px 5px rgba(0,0,0,0.05)"
+                    }}
+                    title="Exporter le journal au format CSV"
+                  >
+                    <i className="bi bi-file-earmark-spreadsheet-fill"></i> Exporter le Journal (CSV)
+                  </button>
+                </div>
+
+                {/* FILTRES DU JOURNAL */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "16px" }}>
                   <div>
                     <label style={{ display: "block", fontSize: "12px", fontWeight: "600", marginBottom: "4px", color: theme.textSecondary }}>Date d'action</label>
@@ -1620,21 +1687,41 @@ export default function DashboardRSI({ user: initialUser, onLogout }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {journals.map((log) => (
-                        <tr key={log.id_jour} style={{ borderBottom: `1px solid ${theme.border}` }}>
-                          <td style={{ padding: "12px", fontFamily: "monospace", color: theme.textSecondary }}>{log.id_jour}</td>
-                          <td style={{ padding: "12px" }}>{log.date_action}</td>
-                          <td style={{ padding: "12px", fontWeight: "500" }}>{log.desc}</td>
-                          <td style={{ padding: "12px" }}>
-                            <span style={{ padding: "3px 8px", borderRadius: "4px", backgroundColor: theme.hoverBg, fontWeight: "600" }}>
-                              {log.im_user}
-                            </span>
-                          </td>
-                          <td style={{ padding: "12px", color: theme.textSecondary }}>
-                            {log.num_ref_doc || "—"}
-                          </td>
-                        </tr>
-                      ))}
+                      {journals.map((log) => {
+                        // Récupération dynamique du code couleur selon le contenu du log
+                        const badge = getActionBadgeStyle(log.desc);
+
+                        return (
+                          <tr key={log.id_jour} style={{ borderBottom: `1px solid ${theme.border}` }}>
+                            <td style={{ padding: "12px", fontFamily: "monospace", color: theme.textSecondary }}>{log.id_jour}</td>
+                            <td style={{ padding: "12px" }}>{log.date_action}</td>
+                            
+                            {/* DESCRIPTION AVEC BADGE COULEUR SELON L'ACTION */}
+                            <td style={{ padding: "12px" }}>
+                              <span style={{
+                                padding: "4px 10px",
+                                borderRadius: "8px",
+                                backgroundColor: badge.bg,
+                                color: badge.color,
+                                fontWeight: "600",
+                                display: "inline-block",
+                                border: `1px solid ${badge.border}40`
+                              }}>
+                                {log.desc}
+                              </span>
+                            </td>
+
+                            <td style={{ padding: "12px" }}>
+                              <span style={{ padding: "3px 8px", borderRadius: "4px", backgroundColor: theme.hoverBg, fontWeight: "600" }}>
+                                {log.im_user}
+                              </span>
+                            </td>
+                            <td style={{ padding: "12px", color: theme.textSecondary }}>
+                              {log.num_ref_doc || "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
