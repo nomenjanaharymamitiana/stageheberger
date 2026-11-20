@@ -1,4 +1,4 @@
-content = '''import io
+import io
 import logging
 import shutil
 import subprocess
@@ -106,7 +106,7 @@ def extraire_texte_pdf(pdf_bytes: bytes) -> str:
             texte = ""
 
         if len(texte) >= MIN_TEXTE_PAGE:
-            textes_pages.append(f"--- Page {numero} ---\\n{texte}")
+            textes_pages.append(f"--- Page {numero} ---\n{texte}")
         else:
             pages_a_ocr.append(numero)
 
@@ -176,7 +176,7 @@ def extraire_texte_pdf(pdf_bytes: bytes) -> str:
 
             if texte_ocr:
                 textes_pages.append(
-                    f"--- Page {numero} (OCR) ---\\n{texte_ocr}"
+                    f"--- Page {numero} (OCR) ---\n{texte_ocr}"
                 )
                 logger.info("OCR réussi page %s.", numero)
             else:
@@ -197,7 +197,7 @@ def extraire_texte_pdf(pdf_bytes: bytes) -> str:
     )
 
     # 9. Construire le texte final
-    texte_final = "\\n\\n".join(textes_pages).strip()
+    texte_final = "\n\n".join(textes_pages).strip()
     if not texte_final:
         raise ValueError(
             "Aucun texte exploitable n'a été trouvé dans ce PDF."
@@ -211,10 +211,3 @@ def extraire_texte_pdf(pdf_bytes: bytes) -> str:
     )
 
     return texte_final
-'''
-path = "/mnt/data/pdf_service.py"
-with open(path, "w", encoding="utf-8") as f:
-    f.write(content)
-import py_compile
-py_compile.compile(path, doraise=True)
-print("Fichier créé et syntaxe vérifiée :", path)
