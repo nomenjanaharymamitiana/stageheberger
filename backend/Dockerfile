@@ -1,28 +1,26 @@
-FROM python:3.12-slim
+FROM python:3.11-slim
 
+# Éviter les fichiers .pyc et garder les logs en temps réel
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Installer Tesseract et les outils PDF
-RUN apt-get update && apt-get install -y --no-install-recommends 
-    tesseract-ocr 
-    tesseract-ocr-fra 
-    tesseract-ocr-eng 
-    poppler-utils 
+# Installation de Tesseract OCR, de la langue française et des dépendances système utiles pour le PDF
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tesseract-ocr \
+    tesseract-ocr-fra \
+    poppler-utils \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Vérifier l'installation de Tesseract
-RUN which tesseract && tesseract --version
-
-# Installer les dépendances Python
+# Installation des dépendances Python
 COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copier le projet
+# Copie du code de l'application
 COPY . .
 
-# Démarrer FastAPI
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-10000}"]
+# Lancement de FastAPI sur le port fourni par Render
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
